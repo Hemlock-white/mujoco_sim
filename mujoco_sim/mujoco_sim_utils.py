@@ -19,11 +19,7 @@ def load_model(robot_type):
     Accepts RobotType enum or string (e.g., 'ALIENGO').
     """
     try:
-        if hasattr(robot_type, 'name'):
-            robot_name = robot_type.name.upper()
-        else:
-            robot_name = str(robot_type).upper()
-        urdf_path = ROBOT_URDF.get(robot_name)
+        urdf_path = ROBOT_URDF.get(robot_type)
         if urdf_path is None:
             raise Exception(f"Unknown robot type: {robot_type}")
         model = mujoco.MjModel.from_xml_path(f"{ASSET_ROOT}/{urdf_path}")
