@@ -11,6 +11,7 @@ GO1 = "go1_description/urdf/go1.urdf"
 # Simulation parameters
 init_height = 0.5
 
+
 def load_model(xml_path):
     """載入 XML/URDF 模型。如果你有 world.xml，建議直接傳入 world.xml"""
     try:

@@ -9,7 +9,7 @@ from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE, ControllerType
 from RL_Environment import gamepad_reader
 import mujoco
-from mujoco_sim_utils import *
+from mujoco_sim.mujoco_sim_utils import *
 from argparse import ArgumentParser
 
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
