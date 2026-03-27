@@ -9,7 +9,7 @@ from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE, ControllerType
 from RL_Environment import gamepad_reader
 import mujoco
-from mujoco_sim.mujoco_sim_utils import *
+from mujoco_sim.mujoco_sim_utils import load_model, reset_robot, get_dof_states, get_body_state
 from argparse import ArgumentParser
 
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
@@ -29,20 +29,21 @@ if use_gamepad:
 def main():
     robot = RobotType[args.robot.upper()]
     dt = Parameters.controller_dt
-    
+
+    # Load MuJoCo model for the selected robot
     model = load_model(robot)
     model.opt.timestep = dt
     data = mujoco.MjData(model)
-    
-    # 初始化機器人位置
+
+    # Reset robot to initial pose
     reset_robot(model, data)
-    
-    # 啟動 MuJoCo 被動渲染器
+
+    # Launch MuJoCo passive viewer
     viewer = mujoco.viewer.launch_passive(model, data)
     viewer.cam.lookat = [0.0, 0.0, 0.0]
     viewer.cam.distance = 2.0
 
-    # 設置 MPC 控制器
+    # Set up MPC controller
     controller_type = ControllerType[args.mode.upper()]
     if controller_type is ControllerType.FSM:
         robotRunner = RobotRunnerFSM()
@@ -59,11 +60,11 @@ def main():
     render_fps = args.render_fps
     render_count = max(1, int(1 / render_fps / dt))
 
-    # 模擬主迴圈
+    # Main simulation loop
     while viewer.is_running():
         step_start = time.time()
 
-        # 步進物理引擎
+        # Step physics
         mujoco.mj_step(model, data)
 
         commands = np.zeros(3, dtype=DTYPE)
@@ -74,8 +75,9 @@ def main():
             if not e_stop:
                 commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
 
-        # 獲取符合 MPC 格式的狀態
+        # Get states in MPC format
         dof_states = get_dof_states(model, data)
+        # Use the correct body name from the Quadruped instance
         body_state = get_body_state(model, data, robotRunner._quadruped._bodyName)
         
         # 執行 MPC 取得關節力矩
