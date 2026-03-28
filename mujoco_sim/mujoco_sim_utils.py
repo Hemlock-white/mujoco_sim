@@ -35,57 +35,80 @@ def load_model(robot_type):
 
 def get_dof_states(model, data):
     """
-    獲取關節狀態，並打包成 Isaac Gym 的結構化 Numpy 陣列格式
-    dtype=[('pos', 'f4'), ('vel', 'f4')]
+    獲取關節狀態。
+    修改：直接讀取關節(Joint)而非致動器(Actuator)，避開 URDF 沒有定義 actuator 的問題。
     """
-    num_dofs = model.nu # 假設致動器數量等於受控關節數量 (通常是12)
-    dof_states = np.zeros(num_dofs, dtype=[('pos', 'f4'), ('vel', 'f4')])
+    dof_pos = []
+    dof_vel = []
     
-    for i in range(num_dofs):
-        # 找到致動器對應的關節
-        joint_id = model.actuator_trnid[i, 0]
-        qpos_idx = model.jnt_qposadr[joint_id]
-        qvel_idx = model.jnt_dofadr[joint_id]
+    for i in range(model.njnt):
+        # 跳過浮動基座的自由關節 (Free joint, 通常是機器人的身體)
+        if model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
+            continue
+            
+        qpos_idx = model.jnt_qposadr[i]
+        qvel_idx = model.jnt_dofadr[i]
         
-        dof_states['pos'][i] = data.qpos[qpos_idx]
-        dof_states['vel'][i] = data.qvel[qvel_idx]
+        dof_pos.append(data.qpos[qpos_idx])
+        dof_vel.append(data.qvel[qvel_idx])
         
+    dof_states = np.zeros(len(dof_pos), dtype=[('pos', 'f4'), ('vel', 'f4')])
+    dof_states['pos'] = dof_pos
+    dof_states['vel'] = dof_vel
+    
     return dof_states
 
 def get_body_state(model, data, body_name):
     """
-    獲取 Base Link 狀態，並打包成 Isaac Gym 的結構化格式
-    IsaacGym Quaternion 是 [x, y, z, w], 而 MuJoCo 是 [w, x, y, z]
+    獲取 Base Link 狀態，加入對名稱差異的容錯處理。
     """
-    # 建立與 Isaac Gym 相同的資料結構
     body_state = np.zeros(1, dtype=[
         ('pose', [('p', 'f4', (3,)), ('r', 'f4', (4,))]),
         ('vel', [('linear', 'f4', (3,)), ('angular', 'f4', (3,))])
-    ])[0] # 提取裡面的單一 record
+    ])[0] 
     
     body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+    
+    # 增加容錯：如果找不到指定的 body_name (如 trunk)，試著找 base 或 base_link
     if body_id < 0:
-        print(f"Warning: Body '{body_name}' not found! Using root.")
-        body_id = 1 # 通常 1 是 base_link
+        for fallback_name in ['trunk', 'base', 'base_link']:
+            body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, fallback_name)
+            if body_id >= 0:
+                break
+                
+    if body_id < 0:
+        print(f"Warning: Body '{body_name}' not found! Using root (index 1).")
+        body_id = 1 
         
-    # 位置 (Position)
     body_state['pose']['p'] = data.xpos[body_id]
     
-    # 姿態 (Quaternion): MuJoCo (w,x,y,z) -> IsaacGym (x,y,z,w)
     wq, xq, yq, zq = data.xquat[body_id]
     body_state['pose']['r'] = [xq, yq, zq, wq]
     
-    # 速度 (Velocity): 獲取世界座標系下的線速度與角速度
     vel = np.zeros(6)
-    # 0 代表獲取 global frame 的速度
     mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_BODY, body_id, vel, 0) 
     
-    # mj_objectVelocity 的回傳格式是 [角速度, 線速度]
     body_state['vel']['angular'] = vel[0:3]
     body_state['vel']['linear'] = vel[3:6]
     
     return body_state
 
+def apply_torques(model, data, torques):
+    """
+    將算出的力矩直接加在對應的關節自由度上，
+    這樣 URDF 就算沒有 <actuator> 標籤也能運作。
+    """
+    torque_idx = 0
+    for i in range(model.njnt):
+        # 跳過浮動基座的自由關節
+        if model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
+            continue
+            
+        if torque_idx < len(torques):
+            dof_idx = model.jnt_dofadr[i]
+            # qfrc_applied 允許我們直接施加外力/力矩
+            data.qfrc_applied[dof_idx] = torques[torque_idx]
+            torque_idx += 1
 def reset_robot(model, data):
     """重置機器人到初始高度與姿態"""
     mujoco.mj_resetData(model, data)

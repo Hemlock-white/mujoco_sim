@@ -64,9 +64,7 @@ def main():
     while viewer.is_running():
         step_start = time.time()
 
-        # Step physics
-        mujoco.mj_step(model, data)
-
+        # 1. 處理輸入指令
         commands = np.zeros(3, dtype=DTYPE)
         if use_gamepad:
             lin_speed, ang_speed, e_stop = gamepad.get_command()
@@ -75,30 +73,31 @@ def main():
             if not e_stop:
                 commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
 
-        # Get states in MPC format
+        # 2. 獲取當前狀態
         dof_states = get_dof_states(model, data)
-        # Use the correct body name from the Quadruped instance
         body_state = get_body_state(model, data, robotRunner._quadruped._bodyName)
         
-        # 執行 MPC 取得關節力矩
+        # 3. 執行 MPC 取得關節力矩
         torques = robotRunner.run(dof_states, body_state, commands).astype(np.float32)
 
-        # 應用力矩到致動器上
-        data.ctrl[:] = torques         
+        # 4. 應用力矩到關節上 (取代原來的 data.ctrl[:] = torques)
+        apply_torques(model, data, torques)
 
         if Parameters.locomotionUnsafe:
             gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
             Parameters.locomotionUnsafe = False
 
-        # 渲染畫面
+        # 5. 步進物理引擎
+        mujoco.mj_step(model, data)
+
+        # 6. 渲染畫面
         if count % render_count == 0:
-            # 你可以讓相機跟隨機器人
             if model.nq >= 3:
                 viewer.cam.lookat[0] = data.qpos[0]
                 viewer.cam.lookat[1] = data.qpos[1]
             viewer.sync()
 
-        # 真實時間同步 (取代 gym.sync_frame_time)
+        # 7. 真實時間同步
         time_until_next_step = dt - (time.time() - step_start)
         if time_until_next_step > 0:
             time.sleep(time_until_next_step)
