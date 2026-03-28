@@ -1,14 +1,13 @@
 import numpy as np
 import mujoco
 import mujoco.viewer
+from MPC_Controller.common.Quadruped import RobotType
 
 # Asset paths (指向你創建的 world.xml 或機器人的 URDF)
 ASSET_ROOT = "assets"
-ROBOT_URDF = {
-    "ALIENGO": "aliengo_description/urdf/aliengo.urdf",
-    "A1": "a1_description/urdf/a1.urdf",
-    "GO1": "go1_description/urdf/go1.urdf"
-}
+ALIENGO = "aliengo_description/urdf/aliengo.urdf"
+A1 = "a1_description/urdf/a1.urdf"
+GO1 = "go1_description/urdf/go1.urdf"
 
 # Simulation parameters
 init_height = 0.5
@@ -18,11 +17,17 @@ def load_model(robot_type):
     Load MuJoCo model for the given RobotType enum or string.
     Accepts RobotType enum or string (e.g., 'ALIENGO').
     """
+    if robot_type is RobotType.ALIENGO:
+        path = ALIENGO
+    elif robot_type is RobotType.A1:
+        path = A1
+    elif robot_type is RobotType.GO1:
+        path = GO1
+    else:
+        raise Exception("Invalid RobotType")
     try:
-        urdf_path = ROBOT_URDF.get(robot_type)
-        if urdf_path is None:
-            raise Exception(f"Unknown robot type: {robot_type}")
-        model = mujoco.MjModel.from_xml_path(f"{ASSET_ROOT}/{urdf_path}")
+        # 如果你已經建好了 world.xml，可以將字串換成你的 xml 檔名
+        model = mujoco.MjModel.from_xml_path(f"{ASSET_ROOT}/{path}")
         return model
     except Exception as e:
         print(f"Error loading URDF/XML: {e}")

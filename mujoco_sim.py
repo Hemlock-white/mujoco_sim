@@ -9,7 +9,7 @@ from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE, ControllerType
 from RL_Environment import gamepad_reader
 import mujoco
-from mujoco_sim.mujoco_sim_utils import load_model, reset_robot, get_dof_states, get_body_state
+from mujoco_sim.mujoco_sim_utils import *
 from argparse import ArgumentParser
 
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
@@ -29,7 +29,7 @@ if use_gamepad:
 def main():
     robot = RobotType[args.robot.upper()]
     dt = Parameters.controller_dt
-
+    
     # Load MuJoCo model for the selected robot
     model = load_model(robot)
     model.opt.timestep = dt
