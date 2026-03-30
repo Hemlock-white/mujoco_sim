@@ -14,6 +14,7 @@ from argparse import ArgumentParser
 
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
 parser.add_argument("--robot", default="Aliengo", choices=[name.title() for name in RobotType.__members__.keys()], help="robot types")
+parser.add_argument("--terrain", default="flat", choices=["flat", "slope", "stairs"], help="terrain types")
 parser.add_argument("--mode", default="Fsm", choices=[name.title() for name in ControllerType.__members__.keys()], help="controller types")
 parser.add_argument("--render-fps", type=int, default=60, help="render fps")
 parser.add_argument("--disable-gamepad", action="store_true")
@@ -29,9 +30,9 @@ if use_gamepad:
 def main():
     robot = RobotType[args.robot.upper()]
     dt = Parameters.controller_dt
-    
+    model = create_dynamic_model(robot, args.terrain)
     # Load MuJoCo model for the selected robot
-    model = load_model(robot)
+    # model = load_model(robot)
     model.opt.timestep = dt
     data = mujoco.MjData(model)
 
@@ -84,11 +85,11 @@ def main():
         apply_torques(model, data, torques)
 
         if Parameters.locomotionUnsafe:
-            gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
-            Parameters.locomotionUnsafe = False
+        #    gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
+        #   Parameters.locomotionUnsafe = False
 
         # 5. 步進物理引擎
-        mujoco.mj_step(model, data)
+         mujoco.mj_step(model, data)
 
         # 6. 渲染畫面
         if count % render_count == 0:

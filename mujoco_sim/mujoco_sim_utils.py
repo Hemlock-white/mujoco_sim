@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import mujoco
 import mujoco.viewer
@@ -32,6 +34,55 @@ def load_model(robot_type):
     except Exception as e:
         print(f"Error loading URDF/XML: {e}")
         raise
+
+def create_dynamic_model(robot_type, terrain_type):
+    """
+    動態組裝 XML 並載入 MuJoCo Model
+    """
+    # 組合 URDF 路徑 (例如: assets/aliengo_description/urdf/aliengo.urdf)
+    robot_name = robot_type.name.lower()
+    robot_path = f"{ASSET_ROOT}/{robot_name}_description/urdf/{robot_name}.urdf"
+    
+    # 決定地形 XML
+    terrain_xmls = {
+        "flat": "terrain_flat.xml",
+        "slope": "terrain_slope.xml",
+        "stairs": "terrain_stairs.xml"
+    }
+    terrain_file = terrain_xmls.get(terrain_type, "terrain_flat.xml")
+
+    # 組裝主 XML 內容
+    xml_content = f"""
+    <mujoco>
+        <compiler angle="radian"/>
+        <option timestep="0.001" gravity="0 0 -9.81"/>
+        
+        <worldbody>
+            <light pos="0 0 10" dir="0 0 -1" directional="true"/>
+            
+            <include file="{terrain_file}"/>
+            
+            <include file="{robot_path}"/>
+        </worldbody>
+    </mujoco>
+    """
+    
+    # 將組裝好的 XML 寫入暫存檔
+    # 這樣做可以確保 URDF 裡面的相對路徑 (如 ../meshes/) 能夠被正確解析
+    temp_xml_path = "temp_world.xml"
+    with open(temp_xml_path, "w") as f:
+        f.write(xml_content)
+        
+    try:
+        model = mujoco.MjModel.from_xml_path(temp_xml_path)
+        return model
+    except Exception as e:
+        print(f"Error compiling dynamic model: {e}")
+        raise
+    finally:
+        # 載入完成後可以選擇刪除暫存檔保持目錄乾淨
+        if os.path.exists(temp_xml_path):
+            os.remove(temp_xml_path)
 
 def get_dof_states(model, data):
     """
