@@ -11,33 +11,41 @@ from RL_Environment import gamepad_reader
 import mujoco
 from mujoco_sim.mujoco_sim_utils import *
 from argparse import ArgumentParser
+from MPC_Controller.utils import GaitType, FSM_OperatingMode, FSM_StateName
 
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
-parser.add_argument("--robot", default="Aliengo", choices=[name.title() for name in RobotType.__members__.keys()], help="robot types")
-parser.add_argument("--terrain", default="flat", choices=["flat", "slope", "stairs"], help="terrain types")
+# 暫時default use go2 scene.xml，因為它已經包含了地形和機器人模型，方便測試。你可以根據需要切換回 world.xml 或其他場景。
+parser.add_argument("--robot", default="A1", choices=[name.title() for name in RobotType.__members__.keys()], help="robot types")
+# parser.add_argument("--terrain", default="flat", choices=["flat", "slope", "stairs"], help="terrain types")
 parser.add_argument("--mode", default="Fsm", choices=[name.title() for name in ControllerType.__members__.keys()], help="controller types")
 parser.add_argument("--render-fps", type=int, default=60, help="render fps")
 parser.add_argument("--disable-gamepad", action="store_true")
 parser.add_argument("--checkpoint", default=None)
-# 移除了 num-envs，因為 MuJoCo 中我們專注於模擬單一 MPC 機器人
+# 移除了 num-envs，專注於模擬單一機器人
 args = parser.parse_args()
 
-use_gamepad = not args.disable_gamepad
 
+use_gamepad = not args.disable_gamepad
 if use_gamepad:
     gamepad = gamepad_reader.Gamepad(vel_scale_x=2.5, vel_scale_y=1.5, vel_scale_rot=3.0)
 
 def main():
+    # Define variables for non-gamepad mode
+    if not use_gamepad:
+        vel_x = 0.0
+        vel_y = 0.0
+        vel_rot = 0.0
+        vel_scale_x = 2.5
+        vel_scale_y = 1.5
+        vel_scale_rot = 3.0
+        is_e_stopped = True
+    
     robot = RobotType[args.robot.upper()]
+    # 暫時固定使用 go2 (fake AI)，因為它的 XML 已經包含了地形和機器人模型，方便測試
     dt = Parameters.controller_dt
-    model = create_dynamic_model(robot, args.terrain)
-    # Load MuJoCo model for the selected robot
-    # model = load_model(robot)
+    model = mujoco.MjModel.from_xml_path("assets/go2/scene.xml")  # 直接載入 go2 的 xml，裡面已經包含了地形和機器人模型
     model.opt.timestep = dt
     data = mujoco.MjData(model)
-
-    # Reset robot to initial pose
-    reset_robot(model, data)
 
     # Launch MuJoCo passive viewer
     viewer = mujoco.viewer.launch_passive(model, data)
@@ -66,30 +74,35 @@ def main():
         step_start = time.time()
 
         # 1. 處理輸入指令
-        commands = np.zeros(3, dtype=DTYPE)
         if use_gamepad:
             lin_speed, ang_speed, e_stop = gamepad.get_command()
             Parameters.cmpc_gait = gamepad.get_gait()
             Parameters.control_mode = gamepad.get_mode()
-            if not e_stop:
-                commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
+        else:
+            lin_speed, ang_speed, e_stop = [vel_x*vel_scale_x, vel_y*vel_scale_y], vel_rot*vel_scale_rot, is_e_stopped  # 預設前進，無旋轉，非緊急停止
+            Parameters.cmpc_gait = GaitType.TROT
+            Parameters.control_mode = FSM_StateName.LOCOMOTION
+        if not e_stop:
+            commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
+        else:
+            commands = np.zeros(3, dtype=DTYPE)
 
-        # 2. 獲取當前狀態
-        dof_states = get_dof_states(model, data)
-        body_state = get_body_state(model, data, robotRunner._quadruped._bodyName)
-        
-        # 3. 執行 MPC 取得關節力矩
-        torques = robotRunner.run(dof_states, body_state, commands).astype(np.float32)
-
-        # 4. 應用力矩到關節上 (取代原來的 data.ctrl[:] = torques)
-        apply_torques(model, data, torques)
+        # run controllers
+        dof_states = get_dof_state(model, data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
+        body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link")
+        body_states = get_body_state(data, body_idx)  
+        legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
+        data.ctrl[:] = legTorques
 
         if Parameters.locomotionUnsafe:
-        #    gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
-        #   Parameters.locomotionUnsafe = False
-
+            if use_gamepad:
+                gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
+            else:
+                is_e_stopped = True
+            Parameters.locomotionUnsafe = False
+        
         # 5. 步進物理引擎
-         mujoco.mj_step(model, data)
+        mujoco.mj_step(model, data)
 
         # 6. 渲染畫面
         if count % render_count == 0:
