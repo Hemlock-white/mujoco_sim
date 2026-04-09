@@ -2,12 +2,14 @@ import math
 import time
 import numpy as np
 from MPC_Controller.Parameters import Parameters
+"""
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
 from MPC_Controller.robot_runner.RobotRunnerMin import RobotRunnerMin
 from MPC_Controller.robot_runner.RobotRunnerPolicy import RobotRunnerPolicy
 from MPC_Controller.common.Quadruped import RobotType
+"""
 from MPC_Controller.utils import DTYPE, ControllerType
-from RL_Environment import gamepad_reader
+#from RL_Environment import gamepad_reader
 import mujoco
 from mujoco_sim.mujoco_sim_utils import *
 from argparse import ArgumentParser
@@ -15,42 +17,37 @@ from MPC_Controller.utils import GaitType, FSM_OperatingMode, FSM_StateName
 import threading
 
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
+"""
 # 暫時default use go2 scene.xml，因為它已經包含了地形和機器人模型，方便測試。你可以根據需要切換回 world.xml 或其他場景。
 parser.add_argument("--robot", default="A1", choices=[name.title() for name in RobotType.__members__.keys()], help="robot types")
 # parser.add_argument("--terrain", default="flat", choices=["flat", "slope", "stairs"], help="terrain types")
 parser.add_argument("--mode", default="Fsm", choices=[name.title() for name in ControllerType.__members__.keys()], help="controller types")
-parser.add_argument("--render-fps", type=int, default=60, help="render fps")
 parser.add_argument("--disable-gamepad", action="store_true")
-parser.add_argument("--checkpoint", default=None)
+parser.add_argument("--checkpoint", default=None)"""
+parser.add_argument("--render-fps", type=int, default=60, help="render fps")
 # 移除了 num-envs，專注於模擬單一機器人
 args = parser.parse_args()
 
 
-use_gamepad = not args.disable_gamepad
-if use_gamepad:
-    gamepad = gamepad_reader.Gamepad(vel_scale_x=2.5, vel_scale_y=1.5, vel_scale_rot=3.0)
+#use_gamepad = not args.disable_gamepad
+#if use_gamepad:
+#    gamepad = gamepad_reader.Gamepad(vel_scale_x=2.5, vel_scale_y=1.5, vel_scale_rot=3.0)
 
 #robot viewer
 STAND_TARGET = np.array([
-    0.0, 0.45, -0.9,  # FR hip>thigh>calf
-    0.0, 0.45, -0.9,  # FL
-    0.0, 0.45, -0.9,  # RR
-    0.0, 0.45, -0.9   # RL
+    0.00571868, 0.608813, -1.21763, -0.00571868, 0.608813, -1.21763,
+    0.00571868, 0.608813, -1.21763, -0.00571868, 0.608813, -1.21763 
 ], dtype=DTYPE)
 
 SIT_TARGET = np.array([
-    0.0, 1.2, -2.5,  
-    0.0, 1.2, -2.5,  
-    0.0, 1.2, -2.5,  
-    0.0, 1.2, -2.5   
+    0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375, 0.0473455,
+    1.22187, -2.44375, -0.0473455, 1.22187, -2.44375  
 ], dtype=DTYPE)
 
-target = SIT_TARGET.copy()
+target = STAND_TARGET.copy()
 is_started = False
-
-KP_stand = 50.0  # Higher stiffness for standing
-KP_sit = 20.0    # Lower stiffness for sitting
-KD = np.array([2, 0, 0, 0, 2, 0, 0, 0, 2], dtype=DTYPE).reshape((3,3))
+  
+KD = np.array([3.5, 0, 0, 0, 2, 0, 0, 0, 5], dtype=DTYPE).reshape((3,3))
 
 
 def get_cmd():
@@ -73,19 +70,9 @@ def get_cmd():
             print("Invalid command. Please enter 'sit', 'stand', or 'exit'.")
 
 def main():
-    # for cmd
-    if not use_gamepad:
-        vel_x = 0.0
-        vel_y = 0.0
-        vel_rot = 0.0
-        vel_scale_x = 2.5
-        vel_scale_y = 1.5
-        vel_scale_rot = 3.0
-        is_e_stopped = True
-
-    robot = RobotType[args.robot.upper()]
+    #    robot = RobotType[args.robot.upper()]
     # 暫時固定使用 go2 (fake AI)，因為它的 XML 已經包含了地形和機器人模型，方便測試
-    dt = Parameters.controller_dt 
+    dt = 0.002 #Parameters.controller_dt 
     model = mujoco.MjModel.from_xml_path("assets/go2/scene.xml")  # 直接載入 go2 的 xml，裡面已經包含了地形和機器人模型
     model.opt.timestep = dt
     data = mujoco.MjData(model)
@@ -94,7 +81,7 @@ def main():
     viewer = mujoco.viewer.launch_passive(model, data)
     viewer.cam.lookat = [0.0, 0.0, 0.0]
     viewer.cam.distance = 2.0
-
+    """
     # Set up MPC controller
     controller_type = ControllerType[args.mode.upper()]
     if controller_type is ControllerType.FSM:
@@ -107,7 +94,7 @@ def main():
         raise Exception("Invalid ControllerType!")
 
     #robotRunner.init(robot)
-
+    """
     count = 0
     render_fps = args.render_fps
     render_count = max(1, int(1 / render_fps / dt))
@@ -117,11 +104,12 @@ def main():
 
     stand_time = 1.2  # seconds to complete standing motion
     transition_start_time = None
-    current_target = SIT_TARGET.copy()
-
+    last_target = np.zeros(12, dtype=DTYPE)
+    runing_time = 0.0
     # Main simulation loop
     while viewer.is_running():
         step_start = time.time()
+        runing_time += dt
         """
         # 1. 處理輸入指令
         if use_gamepad:
@@ -150,51 +138,51 @@ def main():
                 break
 
             # When target changes, start transition timer
-            if not np.array_equal(target, current_target):
-                transition_start_time = time.time()
-                current_target = target.copy()
+            if not np.array_equal(target, last_target):
+                transition_start_time = runing_time
+                q_at_transiton_start = data.sensordata[0:12]
+                last_target = target.copy()
             
-            # Calculate smooth phase using tanh
+            # Calculate tanh
             if transition_start_time is not None:
-                elapsed_time = time.time() - transition_start_time
-                phase = np.tanh(elapsed_time / stand_time)  # Smooth 0→1 transition
-                
-                if phase >= 0.99:  # Transition complete
-                    transition_start_time = None
+                elapsed_time = runing_time - transition_start_time
+                phase = np.tanh(elapsed_time / stand_time)  # Smooth 0→1 transition   
+                if phase >= 0.99:  
                     phase = 1.0
             else:
-                phase = 1.0
+                phase = 0.0
 
-            # Get current state
+            # current states
             q = data.sensordata[0:12]
             dq = data.sensordata[12:24]
             tau = np.zeros(12, dtype=DTYPE)
             
             for leg in range(4):
-                target_leg = current_target[3*leg : 3*(leg+1)]
+                target_leg = target[3*leg : 3*(leg+1)]
+                q_start_leg = q_at_transiton_start[3*leg : 3*(leg+1)]
                 current_q_leg = q[3*leg : 3*(leg+1)]
                 current_dq_leg = dq[3*leg : 3*(leg+1)]
 
-                if target == STAND_TARGET:
-                    kp_current = KP_stand * phase + KP_sit * (1 - phase)
+                if np.array_equal(target, STAND_TARGET):
+                    kp_current = 50 * phase + 20 * (1 - phase)
                 else:
-                    kp_current = KP_stand
+                    kp_current = 50
                 kp_matrix = kp_current * np.eye(3)        
                 
-                smooth_target = phase * target_leg + (1-phase) * 
+                smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
 
-                tau_leg = kp_matrix @ (target_leg - current_q_leg) - KD @ current_dq_leg
+                tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - KD @ current_dq_leg
                 tau[3*leg : 3*(leg+1)] = tau_leg
-            
-            data.ctrl[:] = tau
 
+            data.ctrl[:] = tau
+        """
         if Parameters.locomotionUnsafe:
             if use_gamepad:
                 gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
             else:
                 is_e_stopped = True
             Parameters.locomotionUnsafe = False
-                
+        """        
         # 5. 步進物理引擎
         mujoco.mj_step(model, data)
 
@@ -212,8 +200,8 @@ def main():
             
         count += 1
 
-    if use_gamepad:
-        gamepad.stop()
+    #if use_gamepad:
+    #    gamepad.stop()
 
 if __name__=="__main__":
     main()
