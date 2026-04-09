@@ -44,7 +44,7 @@ def get_dof_state(model, data):
         ('vel', '<f4')
     ])
     Dof_state = np.zeros((), dtype=dof_state)
-    Dof_state["pos"] = data.sensordata[:12] #alueError: setting an array element with a sequence.
+    Dof_state["pos"] = data.sensordata[:12] #avlueError: setting an array element with a sequence.
     Dof_state["vel"] = data.sensordata[12:24]
 
     return Dof_state"""

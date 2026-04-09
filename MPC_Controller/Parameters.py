@@ -41,7 +41,7 @@ class Parameters:
         operatingMode = FSM_OperatingMode.NORMAL # 0 no transition and safe check, 1 normal
         FSM_check_safety = True
     
-    controller_dt = 0.01 # in sec
+    controller_dt = 0.005 # in sec issac 0.01
 
     locomotionUnsafe = False # global indicator for switching contorl mode
     # FSM_check_safety = False
