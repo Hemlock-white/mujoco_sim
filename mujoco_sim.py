@@ -46,9 +46,14 @@ SIT_TARGET = np.array([
 
 target = STAND_TARGET.copy()
 is_started = False
-  
-KD = np.array([3.5, 0, 0, 0, 2, 0, 0, 0, 5], dtype=DTYPE).reshape((3,3))
 
+# 前腿增益 (維持現狀或稍小)
+KP_FRONT_BASE = 50.0
+KD_FRONT = np.array([3.5, 0, 0, 0, 2.0, 0, 0, 0, 5.0], dtype=DTYPE).reshape((3,3))
+
+# 後腿增益 (調大以支撐起立時的後傾力量)
+KP_BACK_BASE = 85.0   # 比前腿大，加強支撐
+KD_BACK = np.array([5.0, 0, 0, 0, 4.0, 0, 0, 0, 5.0], dtype=DTYPE).reshape((3,3)) # 增加阻尼防止震盪
 
 def get_cmd():
     global target
@@ -163,15 +168,25 @@ def main():
                 current_q_leg = q[3*leg : 3*(leg+1)]
                 current_dq_leg = dq[3*leg : 3*(leg+1)]
 
-                if np.array_equal(target, STAND_TARGET):
-                    kp_current = 50 * phase + 20 * (1 - phase)
-                else:
-                    kp_current = 50
-                kp_matrix = kp_current * np.eye(3)        
+                if leg < 2: # 前腿
+                    if np.array_equal(target, STAND_TARGET):
+                        kp_val = KP_FRONT_BASE * phase + 20 * (1 - phase)
+                    else:
+                        kp_val = KP_FRONT_BASE
+                    kp_matrix = kp_val * np.eye(3)
+                    kd_matrix = KD_FRONT
+                else: # 後腿
+                    if np.array_equal(target, STAND_TARGET):
+                        # 後腿起跳的力量可以維持在較高水平
+                        kp_val = KP_BACK_BASE * phase + 30 * (1 - phase)
+                    else:
+                        kp_val = KP_BACK_BASE
+                    kp_matrix = kp_val * np.eye(3)
+                    kd_matrix = KD_BACK       
                 
                 smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
 
-                tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - KD @ current_dq_leg
+                tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
                 tau[3*leg : 3*(leg+1)] = tau_leg
 
             data.ctrl[:] = tau
