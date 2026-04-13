@@ -10,7 +10,8 @@ class InputHandler:
         self.angv = 0.0
 
         # --- 狀態 ---
-        self.is_started = False    # 1st stand up
+        self.is_started = False 
+        self.is_standing = False    # 1st stand up
         self.is_moving = False     
         self.is_exit = False   
 
@@ -50,16 +51,17 @@ class InputHandler:
         """處理終端機文字指令"""
         while not self.is_exit:
             if not self.is_started:
-                start = input("Start and stand up? (y/n): ").lower()
-                self.is_started = True if (start == 'y') else None
+                start = input("Start simulation and stand up? (y/n): ").strip().lower()
+                if start == 'y':
+                    self.is_started, self.is_standing = True, True
             else:
-                cmd = input("\n[move] to start control / [exit] to quit: ").lower()
+                if self.is_moving:
+                    continue
+                cmd = input("\nCommands: [move] to start control / [exit] to quit: ").strip().lower()
                 if cmd == "exit":
                     self.is_exit = True
                     break
-                elif cmd == "move":
-                    if not self.is_moving:
-                        print("Start moving. Use WASD+Q/E to control, 'z' to stop, 'c' to exit.")
-                        self.is_moving = True
-                    else:
-                        print("Already in move mode.")
+                elif cmd == "move" and (not self.is_moving):
+                    print("Move mode ENABLED. Use WASD to control, 'z' to stop, 'c' to exit.")
+                    self.is_moving = True
+                    self.is_standing = False

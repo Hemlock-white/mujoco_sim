@@ -29,7 +29,6 @@ SIT_TARGET = np.array([
 ], dtype=DTYPE)
 
 target = SIT_TARGET.copy()
-is_started = False
 
 KP_FRONT = 50.0
 KD_FRONT = np.array([3.5, 0, 0, 0, 2.0, 0, 0, 0, 5.0], dtype=DTYPE).reshape((3,3))
@@ -38,6 +37,7 @@ KP_BACK = 85.0
 KD_BACK = np.array([5.0, 0, 0, 0, 4.0, 0, 0, 0, 5.0], dtype=DTYPE).reshape((3,3)) 
     
 def main():
+    global target
     # robot = RobotType[args.robot.upper()]
     # 暫時固定使用 go2 (fake AI)，因為它的 XML 已經包含了地形和機器人模型，方便測試
     dt = 0.002 #Parameters.controller_dt 
@@ -62,35 +62,58 @@ def main():
     input_handler = InputHandler()
     input_handler.start()
 
-    runing_time, phase = 0.0, 0.0
+    transition_start_time = None
+    last_target = np.zeros(12, dtype=DTYPE)
+    running_time = 0.0
+    legTorques = np.zeros(12, dtype=DTYPE)
     
     while viewer.is_running() and not input_handler.is_exit:
         step_start = time.time()
-        runing_time += dt
+        running_time += dt
 
-        if is_started:
-            
-            # Calculate tanh
-            if runing_time < 3.0:
-                phase = np.tanh(runing_time / 1.2)  # Smooth 0→1 transition   
-                if phase >= 0.99:  
-                    phase = 1.0
+        if running_time > 3.0:
+            target = STAND_TARGET
 
+        if input_handler.is_started:
+            if input_handler.is_standing:
+                # When target changes, start transition timer
+                if not np.array_equal(target, last_target):
+                    transition_start_time = running_time
+                    q_at_transiton_start = data.sensordata[0:12]
+                    last_target = target.copy()
+                
+                # Calculate tanh
+                if transition_start_time is not None:
+                    elapsed_time = running_time - transition_start_time
+                    phase = np.tanh(elapsed_time / 1.2)  # Smooth 0→1 transition   
+                    if phase >= 0.99:  
+                        phase = 1.0
+                else:
+                    phase = 0.0
+                
                 # current states
                 q = data.sensordata[0:12]
                 dq = data.sensordata[12:24]
-                tau = np.zeros(12, dtype=DTYPE)
-                
+
                 for leg in range(4):
-                    kp,kd_matrix = KP_FRONT, KD_FRONT if leg < 2 else KP_BACK, KD_BACK
+                    target_leg = target[3*leg : 3*(leg+1)]
+                    q_start_leg = q_at_transiton_start[3*leg : 3*(leg+1)]
+                    current_q_leg = q[3*leg : 3*(leg+1)]
+                    current_dq_leg = dq[3*leg : 3*(leg+1)]
+
+                    # F/R leg pd control
+                    kp = KP_FRONT if leg < 2 else KP_BACK
+                    kd_matrix = KD_FRONT if leg < 2 else KD_BACK
                     kp_val = kp * phase + 20 * (1 - phase)
                     kp_matrix = kp_val * np.eye(3)
-                    
-                    q_target_leg = phase * STAND_TARGET[3*leg : 3*(leg+1)] + (1-phase) * SIT_TARGET[3*leg : 3*(leg+1)]
+                        
+                    smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
 
-                    tau_leg = kp_matrix @ (q_target_leg - q[3*leg : 3*(leg+1)]) - kd_matrix @ dq[3*leg : 3*(leg+1)]
+                    tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
                     legTorques[3*leg : 3*(leg+1)] = tau_leg
 
+                data.ctrl[:] = legTorques
+        
             elif input_handler.is_moving:
                 Parameters.cmpc_gait = GaitType.TROT
                 Parameters.control_mode = FSM_StateName.LOCOMOTION
@@ -98,17 +121,14 @@ def main():
                 commands = np.array([input_handler.vx, input_handler.vy, input_handler.angv], dtype=DTYPE)
                 
                 # run controllers
-                dof_states = get_dof_state(model, data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
+                dof_states = get_dof_state(data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
                 body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base" )  #other robots: robotRunner._quadruped._bodyName
                 body_states = get_body_state(data, body_idx) 
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
-            
-            else:
-               for leg in range(4):
-                    kp, kd_matrix = KP_FRONT, KD_FRONT if leg < 2 else KP_BACK, KD_BACK
-                    legTorques[3*leg : 3*(leg+1)] = kp * (STAND_TARGET[3*leg : 3*(leg+1)] - data.sensordata[3*leg : 3*(leg+1)]) - kd_matrix @ data.sensordata[12 + 3*leg : 12 + 3*(leg+1)] 
-
-            data.ctrl[:] = legTorques
+                
+                data.ctrl[:] = legTorques
+            # else:
+                # todo standby(data, STAND_TARGET)  # 站立控制，保持在 STAND_TARGET 姿勢            
 
         if Parameters.locomotionUnsafe:
             # gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)

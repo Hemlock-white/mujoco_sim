@@ -1,52 +1,21 @@
-import os
 import numpy as np
 import mujoco
-import mujoco.viewer
-from MPC_Controller.common.Quadruped import RobotType
+from MPC_Controller.math_utils.orientation_tools import DTYPE
+from mujoco import viewer
+from MPC_Controller.utils import DTYPE
 
-# Asset paths (指向你創建的 world.xml 或機器人的 URDF)
-ASSET_ROOT = "assets"
-ALIENGO = "aliengo_description/urdf/aliengo.urdf"
-# A1 = "a1_description/urdf/a1.urdf"
-# go2 in desguise of A1
-A1 = "go2/go2.xml"
-GO1 = "go1_description/urdf/go1.urdf"
 
-# Simulation parameters
-init_height = 0.5
-""" default go2, so these are not used
-def get_robot_path(robot_type): 
-    if robot_type is RobotType.ALIENGO:
-        path = ASSET_ROOT + "/" + ALIENGO
-    elif robot_type is RobotType.A1:
-        path = ASSET_ROOT + "/" + A1
-    elif robot_type is RobotType.GO1:
-        path = ASSET_ROOT + "/" + GO1
-    else:
-        raise Exception("Invalid RobotType")
-    return path
-
-def load_model(robot_type):
-    path = get_robot_path(robot_type)
-    try:
-        model = mujoco.MjModel.from_xml_path(f"{path}")
-        return model
-    except Exception as e:
-        print(f"Error loading URDF/XML: {e}")
-        raise
-"""
-def get_dof_state(model, data):
-    
-    dtype= dtype([('pos', '<f4'), ('vel', '<f4')])
+def get_dof_state(data):
+    # dtype= dtype([('pos', '<f4'), ('vel', '<f4')])
     
     dof_state = np.dtype([
         ('pos', '<f4'), 
         ('vel', '<f4')
     ])
-    Dof_state = np.zeros((), dtype=dof_state)
+    Dof_state = np.zeros(1, dtype=dof_state)[0]
     for i in range(12):
-        Dof_state[i]["pos"] = data.sensordata[:12] 
-        Dof_state[i]["vel"] = data.sensordata[12:24]
+        Dof_state[i]["pos"] = data.sensordata[i]
+        Dof_state[i]["vel"] = data.sensordata[12 + i]
 
     return Dof_state
     """
@@ -95,3 +64,11 @@ def get_body_state(data, body_id):
     Body_state['vel']['angular'] = tuple(data.cvel[body_id][:3])
     
     return Body_state
+
+"""
+def standby(data, STAND_TARGET): 
+    # think about move and stopped at a wierd pose, how do I smoothly transition to a safe 
+    # standing pose instead of just commanding the stand target (which might cause high torque 
+    # if the current pose is far from the stand target). So we can reuse the sit_stand_transition 
+    # function with the current pose as the start and the stand target as the end, and maybe a 
+    # faster transition time"""
