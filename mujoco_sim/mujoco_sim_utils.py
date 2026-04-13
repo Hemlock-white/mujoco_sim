@@ -36,7 +36,7 @@ def load_model(robot_type):
         raise
 """
 def get_dof_state(model, data):
-    """
+    
     dtype= dtype([('pos', '<f4'), ('vel', '<f4')])
     
     dof_state = np.dtype([
@@ -44,10 +44,12 @@ def get_dof_state(model, data):
         ('vel', '<f4')
     ])
     Dof_state = np.zeros((), dtype=dof_state)
-    Dof_state["pos"] = data.sensordata[:12] #avlueError: setting an array element with a sequence.
-    Dof_state["vel"] = data.sensordata[12:24]
+    for i in range(12):
+        Dof_state[i]["pos"] = data.sensordata[:12] 
+        Dof_state[i]["vel"] = data.sensordata[12:24]
 
-    return Dof_state"""
+    return Dof_state
+    """
     # 建立長度為 12 的陣列 (代表 12 個關節)
     dof_state = np.zeros(12, dtype=[('pos', '<f4'), ('vel', '<f4')])
     
@@ -64,16 +66,14 @@ def get_dof_state(model, data):
             dof_state["pos"][jnt_idx] = data.qpos[qpos_adr]
             dof_state["vel"][jnt_idx] = data.qvel[qvel_adr]
             jnt_idx += 1
-
-    return dof_state
+    
+    return dof_state"""
 
 def get_body_state(data, body_id):
-    """
     # dtype= dtype([('pose', [('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]), 
     #                         ('r', [('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('w', '<f4')])]), 
     #               ('vel', [('linear', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]), 
     #                        ('angular', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')])])])
-    """
     body_state = np.dtype([
         ('pose', [
             ('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
@@ -90,6 +90,7 @@ def get_body_state(data, body_id):
     w, x, y, z = data.xquat[body_id]
     Body_state['pose']['r'] = (x, y, z, w) 
     
+    # use the following: world-aligned linear and angular velocity, and rotate it to body
     Body_state['vel']['linear'] = tuple(data.cvel[body_id][3:6])
     Body_state['vel']['angular'] = tuple(data.cvel[body_id][:3])
     
