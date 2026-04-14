@@ -64,4 +64,4 @@ class InputHandler:
                 elif cmd == "move" and (not self.is_moving):
                     print("Move mode ENABLED. Use WASD to control, 'z' to stop, 'c' to exit.")
                     self.is_moving = True
-                    #self.is_standing = False
+                    self.is_standing = False

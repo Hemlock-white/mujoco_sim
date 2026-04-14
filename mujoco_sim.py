@@ -122,7 +122,7 @@ def main():
                 
                 # run controllers
                 dof_states = get_dof_state(data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
-                body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base" )  #other robots: robotRunner._quadruped._bodyName
+                body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link" )  #other robots: robotRunner._quadruped._bodyName
                 body_states = get_body_state(data, body_idx) 
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
                 

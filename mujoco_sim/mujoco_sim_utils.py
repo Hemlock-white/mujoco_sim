@@ -39,7 +39,6 @@ def get_body_state(data, body_id):
     w, x, y, z = data.xquat[body_id]
     Body_state['pose']['r'] = (x, y, z, w) 
     
-    # use the following: world-aligned linear and angular velocity, and rotate it to body
     Body_state['vel']['linear'] = tuple(data.cvel[body_id][3:6])
     Body_state['vel']['angular'] = tuple(data.cvel[body_id][:3])
     
