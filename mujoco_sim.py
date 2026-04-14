@@ -1,5 +1,7 @@
+from pyexpat import model
 import sys
 import time
+from xml.parsers.expat import model
 import numpy as np
 from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
@@ -28,7 +30,7 @@ SIT_TARGET = np.array([
     1.22187, -2.44375, -0.0473455, 1.22187, -2.44375  
 ], dtype=DTYPE)
 
-target = SIT_TARGET.copy()
+target = STAND_TARGET.copy()
 
 KP_FRONT = 50.0
 KD_FRONT = np.array([3.5, 0, 0, 0, 2.0, 0, 0, 0, 5.0], dtype=DTYPE).reshape((3,3))
@@ -71,8 +73,8 @@ def main():
         step_start = time.time()
         running_time += dt
 
-        if running_time > 3.0:
-            target = STAND_TARGET
+        #if running_time > 3.0:
+        #    target = STAND_TARGET
 
         if input_handler.is_started:
             if input_handler.is_standing:
@@ -111,10 +113,8 @@ def main():
 
                     tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
                     legTorques[3*leg : 3*(leg+1)] = tau_leg
-
-                data.ctrl[:] = legTorques
-        
-            elif input_handler.is_moving:
+            
+            if input_handler.is_moving:
                 Parameters.cmpc_gait = GaitType.TROT
                 Parameters.control_mode = FSM_StateName.LOCOMOTION
 
@@ -126,9 +126,7 @@ def main():
                 body_states = get_body_state(data, body_idx) 
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
                 
-                data.ctrl[:] = legTorques
-            # else:
-                # todo standby(data, STAND_TARGET)  # 站立控制，保持在 STAND_TARGET 姿勢            
+            data.ctrl[:] = legTorques
 
         if Parameters.locomotionUnsafe:
             # gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)

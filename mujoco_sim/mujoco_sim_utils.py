@@ -12,31 +12,11 @@ def get_dof_state(data):
         ('pos', '<f4'), 
         ('vel', '<f4')
     ])
-    Dof_state = np.zeros(1, dtype=dof_state)[0]
-    for i in range(12):
-        Dof_state[i]["pos"] = data.sensordata[i]
-        Dof_state[i]["vel"] = data.sensordata[12 + i]
+    Dof_state = np.zeros(12, dtype=dof_state)
+    Dof_state["pos"] = data.sensordata[0:12] 
+    Dof_state["vel"] = data.sensordata[12:24]
 
     return Dof_state
-    """
-    # 建立長度為 12 的陣列 (代表 12 個關節)
-    dof_state = np.zeros(12, dtype=[('pos', '<f4'), ('vel', '<f4')])
-    
-    # 為了最安全起見 (不受 xml sensor 順序影響)，我們直接從物理引擎核心 qpos/qvel 抓取
-    jnt_idx = 0
-    for i in range(model.njnt):
-        # 跳過軀幹的 freejoint (浮動基座)
-        if model.jnt_type[i] == mujoco.mjtJoint.mjJNT_FREE:
-            continue
-            
-        if jnt_idx < 12:
-            qpos_adr = model.jnt_qposadr[i]
-            qvel_adr = model.jnt_dofadr[i]
-            dof_state["pos"][jnt_idx] = data.qpos[qpos_adr]
-            dof_state["vel"][jnt_idx] = data.qvel[qvel_adr]
-            jnt_idx += 1
-    
-    return dof_state"""
 
 def get_body_state(data, body_id):
     # dtype= dtype([('pose', [('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]), 
