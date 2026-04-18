@@ -19,7 +19,7 @@ def acquire_sim(gym, dt):
 
     # set common parameters
     sim_params.dt = dt # control timestep
-    sim_params.substeps = 2 # physics simulation timestep
+    sim_params.substeps = 5 # physics simulation timestep original 2 mujoco 5
     sim_params.up_axis = gymapi.UP_AXIS_Z
     sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
 
