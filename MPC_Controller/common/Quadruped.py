@@ -67,7 +67,7 @@ class Quadruped:
                                       0, 0.057, 0, 
                                       0, 0, 0.064]) * 10
             self._bodyHeight = 0.26
-            self._friction_coeffs = np.ones(4, dtype=DTYPE) * 0.4
+            self._friction_coeffs = np.ones(4, dtype=DTYPE) * 0.6
             # (roll_pitch_yaw, position, angular_velocity, velocity, gravity_place_holder)
             # self._mpc_weights = [1., 1., 0, 0, 0, 20, 0., 0., .1, .1, .1, .0, 0]
             self._mpc_weights = np.array([0.25, 0.25, 10, 2, 2, 50, 0, 0, 0.3, 0.5, 0.5, 0.1, 0], dtype=DTYPE)

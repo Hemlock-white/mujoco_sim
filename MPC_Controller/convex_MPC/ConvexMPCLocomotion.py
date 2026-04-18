@@ -224,7 +224,7 @@ class ConvexMPCLocomotion:
         self.__SetupCommand(data)
         gaitNumber = Parameters.cmpc_gait.value
         seResult = data._stateEstimator.getResult()
-
+                  
         # pick gait
         gait = self.trotting
         if gaitNumber == 1:

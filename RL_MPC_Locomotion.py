@@ -5,7 +5,7 @@ from MPC_Controller.robot_runner.RobotRunnerMin import RobotRunnerMin
 from MPC_Controller.robot_runner.RobotRunnerPolicy import RobotRunnerPolicy
 from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE, ControllerType
-from RL_Environment import gamepad_reader
+from RL_Environment import udp_reader #gamepad_reader
 from isaacgym import gymapi
 from RL_Environment.sim_utils import *
 from argparse import ArgumentParser
@@ -25,7 +25,8 @@ use_gamepad = not args.disable_gamepad
 debug_vis = False # draw ground normal vector
 
 if use_gamepad:
-    gamepad = gamepad_reader.Gamepad(vel_scale_x=2.5, vel_scale_y=1.5, vel_scale_rot=3.0)
+    #gamepad = gamepad_reader.Gamepad(vel_scale_x=2.5, vel_scale_y=1.5, vel_scale_rot=3.0)
+    gamepad = udp_reader.UDPGamepad(port=9876)
 
 
 def main():
@@ -98,6 +99,15 @@ def main():
             body_idx = gym.find_actor_rigid_body_index(env, actor, controller._quadruped._bodyName, gymapi.DOMAIN_ACTOR)
             body_states = gym.get_actor_rigid_body_states(env, actor, gymapi.STATE_ALL)[body_idx]
             legTorques = controller.run(dof_states, body_states, commands).astype(np.float32)
+            """
+            se_result = robotRunner._stateEstimator.result
+            print("-" * 30)
+            print(f"Time: {data.time:.3f}" if 'data' in locals() else "Isaac Gym")
+            print(f"Pos (World): {se_result.position.flatten()}")
+            print(f"Quat (w,x,y,z): {se_result.orientation}") # 注意這裡的 Quaternion 對象
+            print(f"vBody: {se_result.vBody.flatten()}")
+            print(f"omegaBody: {se_result.omegaBody.flatten()}")"""
+
             gym.apply_actor_dof_efforts(env, actor, legTorques)
 
         if Parameters.locomotionUnsafe:

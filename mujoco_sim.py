@@ -7,36 +7,24 @@ from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
 from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE
-#from RL_Environment import gamepad_reader
+from RL_Environment import udp_reader
 import mujoco
-from mujoco_sim.input_control import InputHandler #inpu control
+#from mujoco_sim.input_control import InputHandler #inpu control
 from mujoco_sim.mujoco_sim_utils import *
 from argparse import ArgumentParser
 from MPC_Controller.utils import GaitType, FSM_StateName
 
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
+parser.add_argument("--disable-gamepad", action="store_true")
 parser.add_argument("--render-fps", type=int, default=60, help="render fps")
 # 移除了 num-envs，專注於模擬單一機器人
 args = parser.parse_args()
+use_gamepad = not args.disable_gamepad
+if use_gamepad:
+    gamepad = udp_reader.UDPGamepad(port=9876)
 
 #robot viewer
-STAND_TARGET = np.array([
-    0.00571868, 0.608813, -1.21763, -0.00571868, 0.608813, -1.21763,
-    0.00571868, 0.608813, -1.21763, -0.00571868, 0.608813, -1.21763 
-], dtype=DTYPE)
 
-SIT_TARGET = np.array([
-    0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375, 0.0473455,
-    1.22187, -2.44375, -0.0473455, 1.22187, -2.44375  
-], dtype=DTYPE)
-
-target = STAND_TARGET.copy()
-
-KP_FRONT = 50.0
-KD_FRONT = np.array([3.5, 0, 0, 0, 2.0, 0, 0, 0, 5.0], dtype=DTYPE).reshape((3,3))
-
-KP_BACK = 85.0   
-KD_BACK = np.array([5.0, 0, 0, 0, 4.0, 0, 0, 0, 5.0], dtype=DTYPE).reshape((3,3)) 
     
 def main():
     global target
@@ -55,81 +43,61 @@ def main():
     # Set up MPC controller
     robotRunner = RobotRunnerFSM()
     robotRunner.init(RobotType.A1)
+    #print(f"robot mass: {robotRunner._quadruped._bodyMass}")
     
     count = 0
     render_fps = args.render_fps
     render_count = max(1, int(1 / render_fps / dt))
 
     # set up input handler
-    input_handler = InputHandler()
-    input_handler.start()
+    #input_handler = InputHandler()
+    #input_handler.start()
 
-    transition_start_time = None
-    last_target = np.zeros(12, dtype=DTYPE)
+    
     running_time = 0.0
     legTorques = np.zeros(12, dtype=DTYPE)
     
-    while viewer.is_running() and not input_handler.is_exit:
+    while viewer.is_running():#and not input_handler.is_exit
         step_start = time.time()
         running_time += dt
-
+        commands = np.zeros(3, dtype=DTYPE)
         #if running_time > 3.0:
         #    target = STAND_TARGET
-
-        if input_handler.is_started:
-            if input_handler.is_standing:
+        if use_gamepad:
+            if gamepad.is_standing:
                 # When target changes, start transition timer
-                if not np.array_equal(target, last_target):
-                    transition_start_time = running_time
-                    q_at_transiton_start = data.sensordata[0:12]
-                    last_target = target.copy()
-                
-                # Calculate tanh
-                if transition_start_time is not None:
-                    elapsed_time = running_time - transition_start_time
-                    phase = np.tanh(elapsed_time / 1.2)  # Smooth 0→1 transition   
-                    if phase >= 0.99:  
-                        phase = 1.0
-                else:
-                    phase = 0.0
-                
-                # current states
-                q = data.sensordata[0:12]
-                dq = data.sensordata[12:24]
-
-                for leg in range(4):
-                    target_leg = target[3*leg : 3*(leg+1)]
-                    q_start_leg = q_at_transiton_start[3*leg : 3*(leg+1)]
-                    current_q_leg = q[3*leg : 3*(leg+1)]
-                    current_dq_leg = dq[3*leg : 3*(leg+1)]
-
-                    # F/R leg pd control
-                    kp = KP_FRONT if leg < 2 else KP_BACK
-                    kd_matrix = KD_FRONT if leg < 2 else KD_BACK
-                    kp_val = kp * phase + 20 * (1 - phase)
-                    kp_matrix = kp_val * np.eye(3)
-                        
-                    smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
-
-                    tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
-                    legTorques[3*leg : 3*(leg+1)] = tau_leg
+                legTorques = pd_stand(data, running_time)
             
-            if input_handler.is_moving:
-                Parameters.cmpc_gait = GaitType.TROT
+            if gamepad.is_moving:
+                        
+                lin_speed, ang_speed, e_stop = gamepad.get_command()
+                Parameters.cmpc_gait = gamepad.get_gait()
+                Parameters.control_mode = gamepad.get_mode()
+                if not e_stop:
+                    commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
+                """Parameters.cmpc_gait = GaitType.TROT
                 Parameters.control_mode = FSM_StateName.LOCOMOTION
 
-                commands = np.array([input_handler.vx, input_handler.vy, input_handler.angv], dtype=DTYPE)
+                #commands = np.array([input_handler.vx, input_handler.vy, input_handler.angv], dtype=DTYPE)"""
                 
                 # run controllers
                 dof_states = get_dof_state(data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
                 body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link" )  #other robots: robotRunner._quadruped._bodyName
                 body_states = get_body_state(data, body_idx) 
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
-                
+                """
+                se_result = robotRunner._stateEstimator.result
+                print("-" * 30)
+                print(f"Time: {data.time:.3f}" if 'data' in locals() else "Isaac Gym")
+                print(f"Pos (World): {se_result.position.flatten()}")
+                print(f"Quat (w,x,y,z): {se_result.orientation}") # 注意這裡的 Quaternion 對象
+                print(f"vBody: {se_result.vBody.flatten()}")
+                print(f"omegaBody: {se_result.omegaBody.flatten()}")"""
+                #print(body_states["pose"]["r"])
             data.ctrl[:] = legTorques
-
+        
         if Parameters.locomotionUnsafe:
-            # gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
+            gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
             Parameters.locomotionUnsafe = False
                
         # 5. 步進物理引擎
