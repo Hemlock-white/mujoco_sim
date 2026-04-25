@@ -1,6 +1,8 @@
 # teleop_client.py
 import socket
 import json
+import threading
+import time
 from pynput import keyboard
 
 UDP_IP = "127.0.0.1"
@@ -62,6 +64,11 @@ def on_release(key):
     #nothing
     pass
 
+def heartbeat():
+    while True:
+        send_state()
+        time.sleep(0.1)
+
 def main():
     print("=======================================")
     print("🚀 機器人遠端遙控器 (Remote Teleop)")
@@ -81,6 +88,10 @@ def main():
     # 在背景啟動鍵盤監聽
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.start()
+
+    # 啟動心跳包發送
+    heart_thread = threading.Thread(target=heartbeat, daemon=True)
+    heart_thread.start()
 
     while True:
         cmd = input("CMD> ").strip().lower()

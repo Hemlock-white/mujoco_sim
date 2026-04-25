@@ -44,7 +44,7 @@ def get_dof_state(data):
 
     return Dof_state
 
-def get_body_state(data, body_id):
+def get_body_state(model, data, body_id):
     # dtype= dtype([('pose', [('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]), 
     #                         ('r', [('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('w', '<f4')])]), 
     #               ('vel', [('linear', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]), 
@@ -65,8 +65,10 @@ def get_body_state(data, body_id):
     w, x, y, z = data.xquat[body_id] #w, x, y, z = data.qpos[3:7]
     Body_state['pose']['r'] = (x, y, z, w) 
     
-    Body_state['vel']['linear'] = tuple(data.cvel[body_id][3:6])
-    Body_state['vel']['angular'] = tuple(data.cvel[body_id][:3])
+    body_vel = np.zeros(6, dtype=np.float64)
+    mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_BODY, body_id, body_vel, 0)
+    Body_state['vel']['linear'] = tuple(body_vel[3:6])
+    Body_state['vel']['angular'] = tuple(body_vel[:3])
     
     return Body_state
 

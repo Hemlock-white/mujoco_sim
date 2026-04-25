@@ -30,7 +30,7 @@ def main():
     global target
     # robot = RobotType[args.robot.upper()]
     # 暫時固定使用 go2 (fake AI)，因為它的 XML 已經包含了地形和機器人模型，方便測試
-    dt = 0.002 #Parameters.controller_dt 
+    dt = 0.005 # Match Isaac Gym physics step (0.01 / 2 substeps)
     model = mujoco.MjModel.from_xml_path("assets/go2/scene.xml")  # 直接載入 go2 的 xml，裡面已經包含了地形和機器人模型
     model.opt.timestep = dt
     data = mujoco.MjData(model)
@@ -56,6 +56,7 @@ def main():
     
     running_time = 0.0
     legTorques = np.zeros(12, dtype=DTYPE)
+    
     
     while viewer.is_running():#and not input_handler.is_exit
         step_start = time.time()
@@ -83,7 +84,7 @@ def main():
                 # run controllers
                 dof_states = get_dof_state(data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
                 body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link" )  #other robots: robotRunner._quadruped._bodyName
-                body_states = get_body_state(data, body_idx) 
+                body_states = get_body_state(model, data, body_idx) 
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
                 """
                 se_result = robotRunner._stateEstimator.result
