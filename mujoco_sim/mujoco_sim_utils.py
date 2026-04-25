@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import mujoco
 from MPC_Controller.math_utils.orientation_tools import DTYPE
 from mujoco import viewer
@@ -110,3 +111,46 @@ def pd_stand(data, running_time):
         LegTorques[3*leg : 3*(leg+1)] = tau_leg
         
     return LegTorques
+
+def init_csv_logger(filename="mujoco_log.csv"):
+    """
+    初始化 CSV 檔案並寫入標頭 (Header)。
+    回傳一個開啟的檔案物件，供主迴圈寫入使用。
+    """
+    try:
+        log_file = open(filename, "w")
+        log_file.write("Time,Raw_PosZ,SE_Roll,SE_Pitch,vBody_X,FF_ForceZ_FR,FF_ForceX_FR,Tau_Hip_FR\n")
+        return log_file
+    except Exception as e:
+        print(f"[Logger] 無法建立檔案: {e}")
+        return None
+
+def log_mpc_states(log_file, current_time, robot_runner, raw_pos_z, leg_torques):
+    if log_file is None:
+        return
+        
+    try:
+        # 從大腦抓取資料
+        se_result = robot_runner._stateEstimator.result
+        leg_cmds = robot_runner._legController.commands
+        
+        # 【安全抓取法】：使用 .flatten() 避免 numpy 維度錯誤 (例如 [0][0] 變 [0])
+        se_roll = se_result.rpy.flatten()[0]
+        se_pitch = se_result.rpy.flatten()[1]
+        vb_x = se_result.vBody.flatten()[0]
+        
+        # 抓取右前腳 (FR, index 0)
+        ff_z = leg_cmds[0].forceFeedForward.flatten()[2]
+        ff_x = leg_cmds[0].forceFeedForward.flatten()[0]
+        
+        # 確保 leg_torques 已經是正確格式
+        tau_hip = float(leg_torques[0])
+        raw_z_val = float(raw_pos_z) # 強制轉為純浮點數
+        
+        # 寫入資料並立刻存檔
+        log_file.write(f"{current_time:.4f},{raw_z_val:.4f},{se_roll:.4f},{se_pitch:.4f},{vb_x:.4f},{ff_z:.4f},{ff_x:.4f},{tau_hip:.4f}\n")
+        log_file.flush() # 強制立刻寫入硬碟！
+        
+    except Exception as e:
+        # 把錯誤印出來我們才知道發生了什麼事！
+        print(f"\r[Logger 報錯] {type(e).__name__}: {e}        ", end="")

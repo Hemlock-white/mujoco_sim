@@ -81,15 +81,14 @@ class Quadruped:
             self._abadLocation = np.array([0.1934, 0.0465, 0], dtype=DTYPE).reshape((3,1))
             self._bodyName = "base_link"
             self._bodyMass = 15.205
-            self._bodyInertia = np.array([0.107027, 0.0980771, 0.0244531])
+            self._bodyInertia = np.array([0.017, 0, 0, 
+                                      0, 0.057, 0, 
+                                      0, 0, 0.064]) * 10
             self._bodyHeight = 0.27
             self._friction_coeffs = np.ones(4, dtype=DTYPE) * 0.5
             # (roll_pitch_yaw, position, angular_velocity, velocity, gravity_place_holder)
-            self._mpc_weights = np.array([1.0, 1.5, 0.0,
-                                 0.0, 0.0, 50,
-                                 0.0, 0.0, 0.1,
-                                 1.0, 1.0, 0.1,
-                                 0.0], dtype=DTYPE)
+            self._mpc_weights = np.array([0.25, 0.25, 10, 2, 2, 50, 0, 0, 0.3, 0.5, 0.5, 0.1, 0], dtype=DTYPE)
+
 
         # elif robotype is RobotType.MINI_CHEETAH:
         #     self._abadLinkLength = 0.062

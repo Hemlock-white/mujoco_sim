@@ -3,7 +3,6 @@ import socket
 import json
 import threading
 import time
-from pynput import keyboard
 
 UDP_IP = "127.0.0.1"
 UDP_PORT = 9876
@@ -26,10 +25,10 @@ def send_state():
     except Exception:
         pass
 
-def on_press(key):
-    try:
-        k = key.char.lower()
-        
+def wsad():
+    k = None
+    while k != 'c':
+        k = input().lower()
         # 前後控制 (VX)
         if k == 'w': 
             state['vx'] = min(state['vx'] + INCREMENT, MAX_VEL)
@@ -49,20 +48,13 @@ def on_press(key):
             state['wz'] = max(state['wz'] - INCREMENT, -MAX_VEL)
             
         # 煞車：立刻將目標速度歸零
-        elif k == 'z': 
+        elif k == 'z' or k == 'c': 
             state['vx'] = state['vy'] = state['wz'] = 0.0
             print("\n[Teleop] Emergency Brake: Velocity reset to 0.")
 
         # 顯示當前目標速度，方便在終端機觀察
         print(f"\rCurrent Target -> VX: {state['vx']:.1f}, VY: {state['vy']:.1f}, WZ: {state['wz']:.1f}    ", end="")
         send_state()
-        
-    except AttributeError:
-        pass
-
-def on_release(key):
-    #nothing
-    pass
 
 def heartbeat():
     while True:
@@ -74,7 +66,7 @@ def main():
     print("🚀 機器人遠端遙控器 (Remote Teleop)")
     print("=======================================")
     print("鍵盤即時控制 (不需按Enter):")
-    print("  [W/S/A/D] 移動   [Q/E] 旋轉   [Z] 煞車")
+    print("  [W/S/A/D] 移動   [Q/E] 旋轉   [Z] 煞車 [C]離開wsad模式")
     print("")
     print("終端機指令模式 (輸入後按Enter):")
     print("  move   : 切換為 LOCOMOTION (行走)")
@@ -85,19 +77,17 @@ def main():
     print("  exit   : 關閉遙控器")
     print("=======================================")
 
-    # 在背景啟動鍵盤監聽
-    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-    listener.start()
-
     # 啟動心跳包發送
-    heart_thread = threading.Thread(target=heartbeat, daemon=True)
-    heart_thread.start()
+    #   heart_thread = threading.Thread(target=heartbeat, daemon=True)
+    #   heart_thread.start()
 
     while True:
-        cmd = input("CMD> ").strip().lower()
+        cmd = input("\nCMD> ").strip().lower()
         if cmd == 'move':
             state['mode'] = 'locomotion'
             print("-> 請求切換至 LOCOMOTION")
+            print("進入 WSAD 鍵控制，案下 [C] 可退出 WSAD 模式。")
+            wsad()
         elif cmd == 'stand':
             state['mode'] = 'stand'
             print("-> pd_stand")

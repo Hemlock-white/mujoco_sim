@@ -56,14 +56,14 @@ def main():
     
     running_time = 0.0
     legTorques = np.zeros(12, dtype=DTYPE)
+    """ 初始化 CSV Logger (在 Isaac Gym 那邊可以改成 "isaac_log.csv")"""
+    log_file = init_csv_logger("mujoco_log.csv")
     
-    
-    while viewer.is_running():#and not input_handler.is_exit
+    while viewer.is_running() and not gamepad.is_exit: #and not input_handler.is_exit
         step_start = time.time()
         running_time += dt
-        commands = np.zeros(3, dtype=DTYPE)
-        #if running_time > 3.0:
-        #    target = STAND_TARGET
+        commands = np.zeros(3, dtype=DTYPE)          
+        
         if use_gamepad:
             if gamepad.is_standing:
                 # When target changes, start transition timer
@@ -86,15 +86,14 @@ def main():
                 body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link" )  #other robots: robotRunner._quadruped._bodyName
                 body_states = get_body_state(model, data, body_idx) 
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
-                """
-                se_result = robotRunner._stateEstimator.result
-                print("-" * 30)
-                print(f"Time: {data.time:.3f}" if 'data' in locals() else "Isaac Gym")
-                print(f"Pos (World): {se_result.position.flatten()}")
-                print(f"Quat (w,x,y,z): {se_result.orientation}") # 注意這裡的 Quaternion 對象
-                print(f"vBody: {se_result.vBody.flatten()}")
-                print(f"omegaBody: {se_result.omegaBody.flatten()}")"""
-                #print(body_states["pose"]["r"])
+                
+                """ ====== 新增：呼叫 Logging 函式 ======"""
+                #raw_pos_z = body_states['pose']['p'][2] # 抓取實際高度 (MuJoCo 格式)
+                body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "FL_foot" )  #other robots: robotRunner._quadruped._bodyName
+                body_states = get_body_state(model, data, body_idx) 
+                fl_foot_z = body_states['pose']['p'][2]
+                # 如果是在 Isaac Gym 裡，可能是 raw_pos_z = body_states["pose"]["p"][0][2]
+                log_mpc_states(log_file, data.time, robotRunner, fl_foot_z, legTorques)
             data.ctrl[:] = legTorques
         
         if Parameters.locomotionUnsafe:
@@ -117,6 +116,15 @@ def main():
             time.sleep(time_until_next_step)
             
         count += 1
+
+    """ 當離開 while 迴圈後"""
+    if log_file is not None:
+        log_file.flush()  
+        log_file.close()
+        print("\n[Logger] CSV 檔案已成功儲存！")
+
+    if use_gamepad:
+        gamepad.stop()
 
     sys.exit(0)
 
