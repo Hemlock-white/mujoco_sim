@@ -42,7 +42,7 @@ def main():
     
     # Set up MPC controller
     robotRunner = RobotRunnerFSM()
-    robotRunner.init(RobotType.A1)
+    robotRunner.init(RobotType.GO2)
     #print(f"robot mass: {robotRunner._quadruped._bodyMass}")
     
     count = 0
@@ -59,7 +59,7 @@ def main():
     """ 初始化 CSV Logger (在 Isaac Gym 那邊可以改成 "isaac_log.csv")"""
     log_file = init_csv_logger("mujoco_log.csv")
     
-    while viewer.is_running() and not gamepad.is_exit: #and not input_handler.is_exit
+    while viewer.is_running(): #and not input_handler.is_exit
         step_start = time.time()
         running_time += dt
         commands = np.zeros(3, dtype=DTYPE)          
@@ -76,10 +76,6 @@ def main():
                 Parameters.control_mode = gamepad.get_mode()
                 if not e_stop:
                     commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
-                """Parameters.cmpc_gait = GaitType.TROT
-                Parameters.control_mode = FSM_StateName.LOCOMOTION
-
-                #commands = np.array([input_handler.vx, input_handler.vy, input_handler.angv], dtype=DTYPE)"""
                 
                 # run controllers
                 dof_states = get_dof_state(data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
