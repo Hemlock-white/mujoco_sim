@@ -79,3 +79,9 @@ class UDPGamepad:
         # 原本用來清除 gamepad 鎖死的邏輯
         if ev_type == 'Key' and code == 'BTN_TR' and value == 0:
             self._estop_flagged = False
+
+    def stop(self):
+        self.running = False
+        self.thread.join()
+        self.sock.close()
+        print("[UDP_Reader] UDP Gamepad stopped.")
