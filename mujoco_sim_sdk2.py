@@ -16,6 +16,10 @@ mj_model = mujoco.MjModel.from_xml_path("assets/go2/scene.xml")
 mj_data = mujoco.MjData(mj_model)
 
 viewer = mujoco.viewer.launch_passive(mj_model, mj_data)
+viewer.cam.lookat[:] = [0.0, 0.0, 0.25]
+viewer.cam.distance = 2.0
+viewer.cam.azimuth = 90
+viewer.cam.elevation = -20
 
 mj_model.opt.timestep = config.SIMULATE_DT
 num_motor_ = mj_model.nu
