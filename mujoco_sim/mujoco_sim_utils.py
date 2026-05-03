@@ -81,11 +81,11 @@ def get_dof_state_sdk2(low_state):
     Dof_state = np.zeros(12, dtype=dof_state)
     for i in range(12):
         if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-            Dof_state["pos"][i+3] = low_state.motorState.q[i]
-            Dof_state["vel"][i+3] = low_state.motorState.dq[i]
+            Dof_state["pos"][i+3] = low_state.motor_state.q[i]
+            Dof_state["vel"][i+3] = low_state.motor_state.dq[i]
         else:
-            Dof_state["pos"][i-3] = low_state.motorState.q[i]
-            Dof_state["vel"][i-3] = low_state.motorState.dq[i]
+            Dof_state["pos"][i-3] = low_state.motor_state.q[i]
+            Dof_state["vel"][i-3] = low_state.motor_state.dq[i]
 
     return Dof_state
 
@@ -101,11 +101,11 @@ def get_body_state_sdk2(low_state):
         ])
     ])
     Body_state = np.zeros(1, dtype=body_state)[0]
-    Body_state['pose']['p'] = tuple(low_state.imuState[4:6]) 
-    w, x, y, z = low_state.imuState[0:3] 
+    Body_state['pose']['p'] = tuple(low_state.imu_state[4:6]) 
+    w, x, y, z = low_state.imu_state.quaternion
     Body_state['pose']['r'] = (x, y, z, w) 
-    Body_state['vel']['linear'] = tuple(low_state.imuState[10:12])
-    Body_state['vel']['angular'] = tuple(low_state.imuState[7:9])
+    Body_state['vel']['linear'] = tuple(low_state.imu_state[10:12])
+    Body_state['vel']['angular'] = tuple(low_state.imu_state.gyroscope)
     
     return Body_state
 
@@ -116,9 +116,9 @@ def pd_stand_sdk2(low_state, running_time):
         q_start = np.zeros(12, dtype=DTYPE)
         for i in range(12):
             if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-                q_start[i+3] = low_state.motorState.q[i]
+                q_start[i+3] = low_state.motor_state[1]
             else:
-                q_start[i-3] = low_state.motorState.q[i]
+                q_start[i-3] = low_state.motor_state[1]
         last_target = target.copy()
     
     # Calculate tanh
@@ -135,11 +135,11 @@ def pd_stand_sdk2(low_state, running_time):
     dq = np.zeros(12, dtype=DTYPE)
     for i in range(12):
         if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-            q[i+3] = low_state.motorState.q[i]
-            dq[i+3] = low_state.motorState.dq[i]
+            q[i+3] = low_state.motor_state[1]
+            dq[i+3] = low_state.motor_state[2]
         else:
-            q[i-3] = low_state.motorState.q[i]
-            dq[i-3] = low_state.motorState.dq[i]
+            q[i-3] = low_state.motor_state[1]
+            dq[i-3] = low_state.motor_state[2]
 
     for leg in range(4):
         target_leg = target[3*leg : 3*(leg+1)]

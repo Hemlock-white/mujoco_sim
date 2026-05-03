@@ -8,7 +8,6 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from mujoco_sim.unitree_sdk2py_bridge import UnitreeSdk2Bridge
 
 from mujoco_sim import config_sdk2 as config
-from mujoco_sim.udp_reader import UDPReader
 
 
 locker = threading.Lock()

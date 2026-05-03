@@ -1,16 +1,12 @@
 """MPC Locomotion related headers and functions"""
-from pyexpat import model
 import sys
-from time import time
-from time import time
-from xml.parsers.expat import model
+import time
 import numpy as np
 from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
 from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE
 from mujoco_sim import udp_reader
-from RL_Environment import gamepad_reader
 #import mujoco
 from mujoco_sim.mujoco_sim_utils import *
 from argparse import ArgumentParser
@@ -30,13 +26,12 @@ from mujoco_sim import config_sdk2 as config
 """"""
 parser = ArgumentParser(prog="mpc_locomotion_sdk2")
 parser.add_argument("--disable-gamepad", action="store_true")
+parser.add_argument("--enable-motion-switcher", action="store_true")
 # 移除了 num-envs，專注於模擬單一機器人
 args = parser.parse_args()
 use_gamepad = not args.disable_gamepad
 if use_gamepad:
     gamepad = udp_reader.UDPGamepad(port=9876)
-else:
-    gamepad = gamepad_reader.Gamepad()
 
 
 
@@ -59,16 +54,17 @@ class MPCLocomotionSDK2:
         self.lowstate_subscriber = ChannelSubscriber("rt/lowstate", LowState_) #mujoco_sdk2.py publish to rt/lowstate
         self.lowstate_subscriber.Init(self.LowStateMessageHandler, 10)
 
-        self.msc = MotionSwitcherClient()
-        self.msc.SetTimeout(5.0)  # Optional: set RPC timeout
-        self.msc.Init()            # Register APIs and set version
+        if args.enable_motion_switcher:
+            self.msc = MotionSwitcherClient()
+            self.msc.SetTimeout(5.0)  # Optional: set RPC timeout
+            self.msc.Init()            # Register APIs and set version
 
-        status, result = self.msc.CheckMode()
-        while result['name']:
-            self.msc.StandDown()
-            self.msc.ReleaseMode()
             status, result = self.msc.CheckMode()
-            time.sleep(1)
+            while result['name']:
+                self.msc.StandDown()
+                self.msc.ReleaseMode()
+                status, result = self.msc.CheckMode()
+                time.sleep(1)
 
     def Start(self): # the thread that 
         self.lowCmdWriteThreadPtr = RecurrentThread(
@@ -108,51 +104,65 @@ class MPCLocomotionSDK2:
 
     # Set up MPC controller
     def MPC_RUN(self):   
+        global use_gamepad, gamepad
         robotRunner = RobotRunnerFSM()
         robotRunner.init(RobotType.GO2)
 
         running_time = 0.0
         legTorques = np.zeros(12, dtype=DTYPE)
+        waiting_for_low_state = True
         
         while True:
             commands = np.zeros(3, dtype=DTYPE)          
             running_time += 0.005
 
-            if use_gamepad:
-                if gamepad.is_standing:
-                # When target changes, start transition timer
-                    legTorques = pd_stand(self.low_state, running_time)
+            if not use_gamepad:
+                break
+
+            if self.low_state is None:
+                if waiting_for_low_state:
+                    print("Waiting for rt/lowstate from mujoco_sim_sdk2.py...")
+                    waiting_for_low_state = False
+                time.sleep(0.005)
+                continue
+
+            if gamepad.is_standing:
+            # When target changes, start transition timer
+                legTorques = pd_stand_sdk2(self.low_state, running_time)
                 
-                if gamepad.is_moving:           
-                    lin_speed, ang_speed, e_stop = gamepad.get_command()
-                    Parameters.cmpc_gait = gamepad.get_gait()
-                    Parameters.control_mode = gamepad.get_mode()
-                    if not e_stop:
-                        commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
+            if gamepad.is_moving:
+                lin_speed, ang_speed, e_stop = gamepad.get_command()
+                Parameters.cmpc_gait = gamepad.get_gait()
+                Parameters.control_mode = gamepad.get_mode()
+                if not e_stop:
+                    commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
                     
-                    # run controllers
-                    dof_states = get_dof_state_sdk2(self.low_state)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
-                    body_states = get_body_state_sdk2(self.low_state) 
-                    # FL -> FR -> RL -> RR but sdk in R -> L -> R -> L
-                    legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
+                # run controllers
+                dof_states = get_dof_state_sdk2(self.low_state)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
+                body_states = get_body_state_sdk2(self.low_state)
+                # FL -> FR -> RL -> RR but sdk in R -> L -> R -> L
+                legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
                     
-                for i in range(12):# R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-                    if (i%6 <= 2):
-                        self.low_cmd.motor_cmd[i+3].tau = legTorques[i]  
-                    else:
-                        self.low_cmd.motor_cmd[i-3].tau = legTorques[i]
-            
+            for i in range(12):# R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
+                if (i%6 <= 2):
+                    self.low_cmd.motor_cmd[i+3].tau = legTorques[i]  
+                else:
+                    self.low_cmd.motor_cmd[i-3].tau = legTorques[i]
+
+            time.sleep(0.005)
+
             if Parameters.locomotionUnsafe:
                 gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
                 Parameters.locomotionUnsafe = False
 
         if use_gamepad:
+            print("exiting MPC_RUN loop, stopping gamepad thread...")
             gamepad.stop()
 
 if __name__=="__main__":
     try:
         # Initialize DDS communication
-        ChannelFactoryInitialize(config.DOMAIN_ID, config.INTERFACE_NAME)
+        ChannelFactoryInitialize(config.DOMAIN_ID, config.INTERFACE)
         mpc_locomotion = MPCLocomotionSDK2()
         mpc_locomotion.Init()
         mpc_locomotion.Start()
@@ -164,5 +174,5 @@ if __name__=="__main__":
     
     finally:
         if 'gamepad' in locals() and use_gamepad:
+            print("exiting main, stopping gamepad thread...")
             gamepad.stop()
-        sys.exit(0)
