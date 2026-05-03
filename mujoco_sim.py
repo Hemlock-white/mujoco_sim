@@ -7,7 +7,7 @@ from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
 from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE
-from RL_Environment import udp_reader
+from mujoco_sim import udp_reader
 import mujoco
 #from mujoco_sim.input_control import InputHandler #inpu control
 from mujoco_sim.mujoco_sim_utils import *

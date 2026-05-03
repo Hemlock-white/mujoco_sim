@@ -5,7 +5,7 @@ from MPC_Controller.robot_runner.RobotRunnerMin import RobotRunnerMin
 from MPC_Controller.robot_runner.RobotRunnerPolicy import RobotRunnerPolicy
 from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE, ControllerType
-from RL_Environment import udp_reader #gamepad_reader
+from mujoco_sim import udp_reader #gamepad_reader
 from isaacgym import gymapi
 from RL_Environment.sim_utils import *
 from argparse import ArgumentParser

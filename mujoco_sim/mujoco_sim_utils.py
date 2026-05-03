@@ -73,6 +73,93 @@ def get_body_state(model, data, body_id):
     
     return Body_state
 
+def get_dof_state_sdk2(low_state):
+    dof_state = np.dtype([
+        ('pos', '<f4'), 
+        ('vel', '<f4')
+    ])
+    Dof_state = np.zeros(12, dtype=dof_state)
+    for i in range(12):
+        if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
+            Dof_state["pos"][i+3] = low_state.motorState.q[i]
+            Dof_state["vel"][i+3] = low_state.motorState.dq[i]
+        else:
+            Dof_state["pos"][i-3] = low_state.motorState.q[i]
+            Dof_state["vel"][i-3] = low_state.motorState.dq[i]
+
+    return Dof_state
+
+def get_body_state_sdk2(low_state):
+    body_state = np.dtype([
+        ('pose', [
+            ('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
+            ('r', [('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('w', '<f4')])
+        ]),
+        ('vel', [
+            ('linear', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
+            ('angular', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')])
+        ])
+    ])
+    Body_state = np.zeros(1, dtype=body_state)[0]
+    Body_state['pose']['p'] = tuple(low_state.imuState[4:6]) 
+    w, x, y, z = low_state.imuState[0:3] 
+    Body_state['pose']['r'] = (x, y, z, w) 
+    Body_state['vel']['linear'] = tuple(low_state.imuState[10:12])
+    Body_state['vel']['angular'] = tuple(low_state.imuState[7:9])
+    
+    return Body_state
+
+def pd_stand_sdk2(low_state, running_time):
+    global last_target, transition_start_time, target, q_start, KD_BACK, KD_FRONT, KP_BACK, KP_FRONT
+    if not np.array_equal(target, last_target):
+        transition_start_time = running_time
+        q_start = np.zeros(12, dtype=DTYPE)
+        for i in range(12):
+            if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
+                q_start[i+3] = low_state.motorState.q[i]
+            else:
+                q_start[i-3] = low_state.motorState.q[i]
+        last_target = target.copy()
+    
+    # Calculate tanh
+    if transition_start_time is not None:
+        elapsed_time = running_time - transition_start_time
+        phase = np.tanh(elapsed_time / 1.2)  # Smooth 0→1 transition   
+        if phase >= 0.99:  
+            phase = 1.0
+    else:
+        phase = 0.0
+    
+    # current states
+    q = np.zeros(12, dtype=DTYPE)
+    dq = np.zeros(12, dtype=DTYPE)
+    for i in range(12):
+        if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
+            q[i+3] = low_state.motorState.q[i]
+            dq[i+3] = low_state.motorState.dq[i]
+        else:
+            q[i-3] = low_state.motorState.q[i]
+            dq[i-3] = low_state.motorState.dq[i]
+
+    for leg in range(4):
+        target_leg = target[3*leg : 3*(leg+1)]
+        q_start_leg = q_start[3*leg : 3*(leg+1)]
+        current_q_leg = q[3*leg : 3*(leg+1)]
+        current_dq_leg = dq[3*leg : 3*(leg+1)]
+
+        # F/R leg pd control
+        kp = KP_FRONT if leg < 2 else KP_BACK
+        kd_matrix = KD_FRONT if leg < 2 else KD_BACK
+        kp_val = kp * phase + 20 * (1 - phase)
+        kp_matrix = kp_val * np.eye(3)
+
+        smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
+
+        tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
+        LegTorques[3*leg : 3*(leg+1)] = tau_leg
+        
+    return LegTorques
+
 def pd_stand(data, running_time):
     global last_target, transition_start_time, target, q_start, KD_BACK, KD_FRONT, KP_BACK, KP_FRONT
     if not np.array_equal(target, last_target):
