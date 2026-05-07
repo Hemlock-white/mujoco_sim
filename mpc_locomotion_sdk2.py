@@ -53,7 +53,7 @@ class MPCLocomotionSDK2:
         # create subscriber # 
         self.lowstate_subscriber = ChannelSubscriber("rt/lowstate", LowState_) #mujoco_sdk2.py publish to rt/lowstate
         self.lowstate_subscriber.Init(self.LowStateMessageHandler, 10)
-
+        """
         if args.enable_motion_switcher:
             self.msc = MotionSwitcherClient()
             self.msc.SetTimeout(5.0)  # Optional: set RPC timeout
@@ -64,7 +64,7 @@ class MPCLocomotionSDK2:
                 self.msc.StandDown()
                 self.msc.ReleaseMode()
                 status, result = self.msc.CheckMode()
-                time.sleep(1)
+                time.sleep(1)"""
 
     def Start(self): # the thread that 
         self.lowCmdWriteThreadPtr = RecurrentThread(
