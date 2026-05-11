@@ -9,6 +9,7 @@ from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE
 from mujoco_sim import udp_reader
 import mujoco
+import mujoco.viewer
 #from mujoco_sim.input_control import InputHandler #inpu control
 from mujoco_sim.mujoco_sim_utils import *
 from argparse import ArgumentParser
@@ -79,15 +80,12 @@ def main():
                 
                 # run controllers
                 dof_states = get_dof_state(data)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
-                body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link" )  #other robots: robotRunner._quadruped._bodyName
-                body_states = get_body_state(model, data, body_idx) 
+                body_states = get_body_state(data)
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
-                
+
                 """ ====== 新增：呼叫 Logging 函式 ======"""
-                #raw_pos_z = body_states['pose']['p'][2] # 抓取實際高度 (MuJoCo 格式)
-                body_idx = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "FL_foot" )  #other robots: robotRunner._quadruped._bodyName
-                body_states = get_body_state(model, data, body_idx) 
-                fl_foot_z = body_states['pose']['p'][2]
+                fl_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "FL_foot")
+                fl_foot_z = data.xpos[fl_foot_id, 2]
                 # 如果是在 Isaac Gym 裡，可能是 raw_pos_z = body_states["pose"]["p"][0][2]
                 log_mpc_states(log_file, data.time, robotRunner, fl_foot_z, legTorques)
             data.ctrl[:] = legTorques
