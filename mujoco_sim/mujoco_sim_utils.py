@@ -1,8 +1,6 @@
 import numpy as np
 import os
-import mujoco
-from MPC_Controller.math_utils.orientation_tools import DTYPE
-from mujoco import viewer
+from MPC_Controller.math_utils.orientation_tools import Quaternion, quat_to_rot
 from MPC_Controller.utils import DTYPE
 
 STAND_TARGET = np.array([
@@ -45,33 +43,87 @@ def get_dof_state(data):
 
     return Dof_state
 
-def get_body_state(model, data, body_id):
-    # dtype= dtype([('pose', [('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]), 
-    #                         ('r', [('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('w', '<f4')])]), 
-    #               ('vel', [('linear', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]), 
-    #                        ('angular', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')])])])
-    body_state = np.dtype([
+def get_body_state(data):
+    # Returns body state sourced entirely from go2.xml sensordata.
+    # sensordata layout (indices are cumulative sensor output sizes):
+    #   [36:40] framequat "imu_quat"   -> (w, x, y, z)  world-frame orientation of imu site
+    #   [40:43] gyro      "imu_gyro"   -> (wx, wy, wz)   angular velocity in BODY frame
+    #   [46:49] framepos  "frame_pos"  -> (x, y, z)      world-frame position of imu site
+    #   [49:52] framelinvel "frame_vel"-> (vx, vy, vz)   world-frame linear velocity of imu site
+    #
+    # StateEstimator.update() (bridge_MPC_to_RL=False) reads:
+    #   pose['r']          -> orientation (x, y, z, w)
+    #   vel['linear']      -> vWorld  (world frame)
+    #   vel['angular']     -> omegaWorld (world frame)
+    body_state_dtype = np.dtype([
         ('pose', [
             ('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
             ('r', [('x', '<f4'), ('y', '<f4'), ('z', '<f4'), ('w', '<f4')])
         ]),
         ('vel', [
-            ('linear', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
+            ('linear',  [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
             ('angular', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')])
         ])
     ])
-    Body_state = np.zeros(1, dtype=body_state)[0] #好像初始化一個是可以的?
-    Body_state['pose']['p'] = tuple(data.xpos[body_id])
-    
-    w, x, y, z = data.xquat[body_id] #w, x, y, z = data.qpos[3:7]
-    Body_state['pose']['r'] = (x, y, z, w) 
-    
-    body_vel = np.zeros(6, dtype=np.float64)
-    mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_BODY, body_id, body_vel, 0)
-    Body_state['vel']['linear'] = tuple(body_vel[3:6])
-    Body_state['vel']['angular'] = tuple(body_vel[:3])
-    
+    Body_state = np.zeros(1, dtype=body_state_dtype)[0]
+
+    # Orientation: framequat outputs (w, x, y, z); reorder to (x, y, z, w) for StateEstimator
+    w, x, y, z = data.sensordata[36:40]
+    Body_state['pose']['r'] = (x, y, z, w)
+
+    # Position: framepos outputs world-frame position directly
+    Body_state['pose']['p'] = tuple(data.sensordata[46:49])
+
+    # Linear velocity: framelinvel outputs world-frame velocity directly
+    Body_state['vel']['linear'] = tuple(data.sensordata[49:52])
+
+    # Angular velocity: gyro sensor outputs in body frame; rotate to world frame.
+    # quat_to_rot(q) returns body_R_world; .T gives world_R_body.
+    q = Quaternion(w=float(w), x=float(x), y=float(y), z=float(z))
+    world_R_body = quat_to_rot(q).T
+    omega_body = np.asarray(data.sensordata[40:43], dtype=np.float32)
+    Body_state['vel']['angular'] = tuple(world_R_body @ omega_body)
+
     return Body_state
+
+def pd_stand(data, running_time):
+    global last_target, transition_start_time, target, q_start, KD_BACK, KD_FRONT, KP_BACK, KP_FRONT
+    if not np.array_equal(target, last_target):
+        transition_start_time = running_time
+        q_start = data.sensordata[0:12]
+        last_target = target.copy()
+    
+    # Calculate tanh
+    if transition_start_time is not None:
+        elapsed_time = running_time - transition_start_time
+        phase = np.tanh(elapsed_time / 1.2)  # Smooth 0→1 transition   
+        if phase >= 0.99:  
+            phase = 1.0
+    else:
+        phase = 0.0
+    
+    # current states
+    q = data.sensordata[0:12]
+    dq = data.sensordata[12:24]
+
+    for leg in range(4):
+        target_leg = target[3*leg : 3*(leg+1)]
+        q_start_leg = q_start[3*leg : 3*(leg+1)]
+        current_q_leg = q[3*leg : 3*(leg+1)]
+        current_dq_leg = dq[3*leg : 3*(leg+1)]
+
+        # F/R leg pd control
+        kp = KP_FRONT if leg < 2 else KP_BACK
+        kd_matrix = KD_FRONT if leg < 2 else KD_BACK
+        kp_val = kp * phase + 20 * (1 - phase)
+        kp_matrix = kp_val * np.eye(3)
+            
+        smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
+
+        tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
+        LegTorques[3*leg : 3*(leg+1)] = tau_leg
+        
+    return LegTorques
 
 def get_dof_state_sdk2(low_state):
     dof_state = np.dtype([
@@ -153,45 +205,6 @@ def pd_stand_sdk2(low_state, running_time):
         kp_val = kp * phase + 20 * (1 - phase)
         kp_matrix = kp_val * np.eye(3)
 
-        smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
-
-        tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
-        LegTorques[3*leg : 3*(leg+1)] = tau_leg
-        
-    return LegTorques
-
-def pd_stand(data, running_time):
-    global last_target, transition_start_time, target, q_start, KD_BACK, KD_FRONT, KP_BACK, KP_FRONT
-    if not np.array_equal(target, last_target):
-        transition_start_time = running_time
-        q_start = data.sensordata[0:12]
-        last_target = target.copy()
-    
-    # Calculate tanh
-    if transition_start_time is not None:
-        elapsed_time = running_time - transition_start_time
-        phase = np.tanh(elapsed_time / 1.2)  # Smooth 0→1 transition   
-        if phase >= 0.99:  
-            phase = 1.0
-    else:
-        phase = 0.0
-    
-    # current states
-    q = data.sensordata[0:12]
-    dq = data.sensordata[12:24]
-
-    for leg in range(4):
-        target_leg = target[3*leg : 3*(leg+1)]
-        q_start_leg = q_start[3*leg : 3*(leg+1)]
-        current_q_leg = q[3*leg : 3*(leg+1)]
-        current_dq_leg = dq[3*leg : 3*(leg+1)]
-
-        # F/R leg pd control
-        kp = KP_FRONT if leg < 2 else KP_BACK
-        kd_matrix = KD_FRONT if leg < 2 else KD_BACK
-        kp_val = kp * phase + 20 * (1 - phase)
-        kp_matrix = kp_val * np.eye(3)
-            
         smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
 
         tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
