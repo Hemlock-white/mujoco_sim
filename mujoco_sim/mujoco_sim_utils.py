@@ -166,11 +166,14 @@ def pd_stand_sdk2(low_state, running_time):
     if not np.array_equal(target, last_target):
         transition_start_time = running_time
         q_start = np.zeros(12, dtype=DTYPE)
+        """
         for i in range(12):
             if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
                 q_start[i+3] = low_state.motor_state[i].q
             else:
-                q_start[i-3] = low_state.motor_state[i].q
+                q_start[i-3] = low_state.motor_state[i].q"""
+        for i in range(12):
+            q_start[i] = low_state.motor_state[i].q
         last_target = target.copy()
     
     # Calculate tanh
@@ -185,13 +188,17 @@ def pd_stand_sdk2(low_state, running_time):
     # current states
     q = np.zeros(12, dtype=DTYPE)
     dq = np.zeros(12, dtype=DTYPE)
+    """
     for i in range(12):
         if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
             q[i+3] = low_state.motor_state[i].q
             dq[i+3] = low_state.motor_state[i].dq
         else:
             q[i-3] = low_state.motor_state[i].q
-            dq[i-3] = low_state.motor_state[i].dq
+            dq[i-3] = low_state.motor_state[i].dq"""
+    for i in range(12):
+        q[i] = low_state.motor_state[i].q
+        dq[i] = low_state.motor_state[i].dq
 
     for leg in range(4):
         target_leg = target[3*leg : 3*(leg+1)]
@@ -209,7 +216,7 @@ def pd_stand_sdk2(low_state, running_time):
 
         tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
         LegTorques[3*leg : 3*(leg+1)] = tau_leg
-        
+
     return LegTorques
 
 def init_csv_logger(filename="mujoco_log.csv"):

@@ -68,7 +68,7 @@ class MPCLocomotionSDK2:
 
     def Start(self): # the thread that 
         self.lowCmdWriteThreadPtr = RecurrentThread(
-            interval=0.002, target=self.LowCmdWrite, name="writebasiccmd"
+            interval=0.005, target=self.LowCmdWrite, name="writebasiccmd"
         )
         self.lowCmdWriteThreadPtr.Start()
 
@@ -142,12 +142,16 @@ class MPCLocomotionSDK2:
                 body_states = get_body_state_sdk2(self.low_state)
                 # FL -> FR -> RL -> RR but sdk in R -> L -> R -> L
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
-                    
+                
+            """       
             for i in range(12):# R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
                 if (i%6 <= 2):
                     self.low_cmd.motor_cmd[i+3].tau = legTorques[i]  
                 else:
-                    self.low_cmd.motor_cmd[i-3].tau = legTorques[i]
+                    self.low_cmd.motor_cmd[i-3].tau = legTorques[i]"""
+            print("legTorques: ", legTorques)
+            for i in range(12):
+                self.low_cmd.motor_cmd[i].tau = legTorques[i]
 
             time.sleep(0.005)
 

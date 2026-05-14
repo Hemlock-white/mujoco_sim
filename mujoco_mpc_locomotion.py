@@ -88,6 +88,7 @@ def main():
                 fl_foot_z = data.xpos[fl_foot_id, 2]
                 # 如果是在 Isaac Gym 裡，可能是 raw_pos_z = body_states["pose"]["p"][0][2]
                 log_mpc_states(log_file, data.time, robotRunner, fl_foot_z, legTorques)
+            print("legTorques: ", legTorques)
             data.ctrl[:] = legTorques
         
         if Parameters.locomotionUnsafe:
