@@ -1,7 +1,7 @@
 ROBOT = "go2" # Robot name, "go2", "b2", "b2w", "h1", "go2w", "g1" 
 ROBOT_SCENE = "assets/go2/scene.xml" # Robot scene
 DOMAIN_ID = 1 # Domain id
-INTERFACE = "eth0" # Interface r
+INTERFACE = "lo" # Interface r
 
 PRINT_SCENE_INFORMATION = 1 # Print link, joint and sensors information of robot
 

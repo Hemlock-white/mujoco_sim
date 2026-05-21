@@ -15,12 +15,11 @@ from argparse import ArgumentParser
 from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
 from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
-from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowState_
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_
+from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
 from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.utils.thread import RecurrentThread
-from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
 from mujoco_sim import config_sdk2 as config
 
 """"""
@@ -39,6 +38,7 @@ class MPCLocomotionSDK2:
     def __init__(self):
         self.low_cmd = unitree_go_msg_dds__LowCmd_()
         self.low_state = None
+        self.high_state = None
         # thread handling
         self.lowCmdWriteThreadPtr = None 
         self.crc = CRC()
@@ -53,19 +53,9 @@ class MPCLocomotionSDK2:
         # create subscriber # 
         self.lowstate_subscriber = ChannelSubscriber("rt/lowstate", LowState_) #mujoco_sdk2.py publish to rt/lowstate
         self.lowstate_subscriber.Init(self.LowStateMessageHandler, 10)
-        """
-        if args.enable_motion_switcher:
-            self.msc = MotionSwitcherClient()
-            self.msc.SetTimeout(5.0)  # Optional: set RPC timeout
-            self.msc.Init()            # Register APIs and set version
-
-            status, result = self.msc.CheckMode()
-            while result['name']:
-                self.msc.StandDown()
-                self.msc.ReleaseMode()
-                status, result = self.msc.CheckMode()
-                time.sleep(1)"""
-
+        self.highstate_subscriber = ChannelSubscriber("rt/sportmodestate", SportModeState_) #mujoco_sdk2.py publish to rt/sportmodestate
+        self.highstate_subscriber.Init(self.HighStateMessageHandler, 10)
+        
     def Start(self): # the thread that 
         self.lowCmdWriteThreadPtr = RecurrentThread(
             interval=0.005, target=self.LowCmdWrite, name="writebasiccmd"
@@ -92,6 +82,9 @@ class MPCLocomotionSDK2:
         # print("IMU state: ", msg.imu_state)
         # print("Battery state: voltage: ", msg.power_v, "current: ", msg.power_a)
 
+    def HighStateMessageHandler(self, msg: SportModeState_):
+        self.high_state = msg
+
     def LowCmdWrite(self):
         self.low_cmd.crc = self.crc.Crc(self.low_cmd)
         self.lowcmd_publisher.Write(self.low_cmd)
@@ -110,7 +103,8 @@ class MPCLocomotionSDK2:
 
         running_time = 0.0
         legTorques = np.zeros(12, dtype=DTYPE)
-        waiting_for_low_state = True
+        was_moving = False
+        waiting_for_states = True
         
         while True:
             commands = np.zeros(3, dtype=DTYPE)          
@@ -119,17 +113,17 @@ class MPCLocomotionSDK2:
             if not use_gamepad:
                 break
 
-            if self.low_state is None:
-                if waiting_for_low_state:
-                    print("Waiting for rt/lowstate from mujoco_sim_sdk2.py...")
-                    waiting_for_low_state = False
+            if self.low_state is None or self.high_state is None:
+                if waiting_for_states:
+                    print("Waiting for rt/lowstate and rt/sportmodestate from mujoco_sim_sdk2.py...")
+                    waiting_for_states = False
                 time.sleep(0.005)
                 continue
 
+            
             if gamepad.is_standing:
-            # When target changes, start transition timer
-                legTorques = pd_stand_sdk2(self.low_state, running_time)
-                
+                self.low_cmd = pd_stand_sdk2(self.low_state, self.low_cmd, running_time)
+
             if gamepad.is_moving:
                 lin_speed, ang_speed, e_stop = gamepad.get_command()
                 Parameters.cmpc_gait = gamepad.get_gait()
@@ -138,20 +132,32 @@ class MPCLocomotionSDK2:
                     commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
                     
                 # run controllers
-                dof_states = get_dof_state_sdk2(self.low_state)  # get_actor_dof_states returns "pos","<f4" and "vel","<f4" in a structured array. <f4 means little-endian (stores data from LSB at smallest mm addr, and MSB at largest mm addr) single-precision float 32bit
-                body_states = get_body_state_sdk2(self.low_state)
-                # FL -> FR -> RL -> RR but sdk in R -> L -> R -> L
+                dof_states = get_dof_state_sdk2(self.low_state)
+                body_states = get_body_state_sdk2(self.low_state, self.high_state)
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
-                
-            """       
-            for i in range(12):# R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-                if (i%6 <= 2):
-                    self.low_cmd.motor_cmd[i+3].tau = legTorques[i]  
-                else:
-                    self.low_cmd.motor_cmd[i-3].tau = legTorques[i]"""
-            print("legTorques: ", legTorques)
-            for i in range(12):
-                self.low_cmd.motor_cmd[i].tau = legTorques[i]
+
+                for i in range(12):
+                    self.low_cmd.motor_cmd[i].q   = 2.146e9  # PosStopF — disable position term
+                    self.low_cmd.motor_cmd[i].kp  = 0.0
+                    self.low_cmd.motor_cmd[i].dq  = 16000.0  # VelMPC — enable velocity term with high target velocity to effectively become torque control
+                    self.low_cmd.motor_cmd[i].kd  = 0.0      # local damping via bridge live sensordata
+                    self.low_cmd.motor_cmd[i].tau = legTorques[i]
+                if running_time - last_debug_time > 0.25:
+                    se = robotRunner._stateEstimator.getResult()
+                    print(
+                        "[MPC_DBG] cmd=({:.2f},{:.2f},{:.2f}) "
+                        "rpy=({:.1f},{:.1f},{:.1f}) "
+                        "vBody=({:.2f},{:.2f},{:.2f}) "
+                        "z={:.3f} maxTau={:.1f}".format(
+                            commands[0], commands[1], commands[2],
+                            *np.rad2deg(se.rpy.flatten()),
+                            *se.vBody.flatten(),
+                            float(se.position[2]),
+                            float(np.max(np.abs(legTorques))),
+                        )
+                    )
+                    last_debug_time = running_time
+                #print("legTorques: ", legTorques)
 
             time.sleep(0.005)
 

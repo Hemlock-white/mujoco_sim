@@ -67,18 +67,13 @@ def get_body_state(data):
     ])
     Body_state = np.zeros(1, dtype=body_state_dtype)[0]
 
-    # Orientation: framequat outputs (w, x, y, z); reorder to (x, y, z, w) for StateEstimator
     w, x, y, z = data.sensordata[36:40]
     Body_state['pose']['r'] = (x, y, z, w)
 
-    # Position: framepos outputs world-frame position directly
     Body_state['pose']['p'] = tuple(data.sensordata[46:49])
 
-    # Linear velocity: framelinvel outputs world-frame velocity directly
     Body_state['vel']['linear'] = tuple(data.sensordata[49:52])
 
-    # Angular velocity: gyro sensor outputs in body frame; rotate to world frame.
-    # quat_to_rot(q) returns body_R_world; .T gives world_R_body.
     q = Quaternion(w=float(w), x=float(x), y=float(y), z=float(z))
     world_R_body = quat_to_rot(q).T
     omega_body = np.asarray(data.sensordata[40:43], dtype=np.float32)
@@ -132,16 +127,12 @@ def get_dof_state_sdk2(low_state):
     ])
     Dof_state = np.zeros(12, dtype=dof_state)
     for i in range(12):
-        if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-            Dof_state["pos"][i+3] = low_state.motor_state[i].q
-            Dof_state["vel"][i+3] = low_state.motor_state[i].dq
-        else:
-            Dof_state["pos"][i-3] = low_state.motor_state[i].q
-            Dof_state["vel"][i-3] = low_state.motor_state[i].dq
+        Dof_state["pos"][i] = low_state.motor_state[i].q
+        Dof_state["vel"][i] = low_state.motor_state[i].dq
 
     return Dof_state
 
-def get_body_state_sdk2(low_state):
+def get_body_state_sdk2(low_state, high_state):
     body_state = np.dtype([
         ('pose', [
             ('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
@@ -153,71 +144,51 @@ def get_body_state_sdk2(low_state):
         ])
     ])
     Body_state = np.zeros(1, dtype=body_state)[0]
-    Body_state['pose']['p'] = tuple(low_state.imu_state.rpy) 
+    Body_state['pose']['p'] = tuple(high_state.position) 
+
     w, x, y, z = low_state.imu_state.quaternion
     Body_state['pose']['r'] = (x, y, z, w) 
-    Body_state['vel']['linear'] = tuple(low_state.imu_state.accelerometer)
-    Body_state['vel']['angular'] = tuple(low_state.imu_state.gyroscope)
+    
+    Body_state['vel']['linear'] = tuple(high_state.velocity)
+
+    q = Quaternion(w=float(w), x=float(x), y=float(y), z=float(z))
+    world_R_body = quat_to_rot(q).T
+    omega_body = np.asarray(low_state.imu_state.gyroscope, dtype=np.float32)
+    Body_state['vel']['angular'] = tuple(world_R_body @ omega_body)
     
     return Body_state
 
-def pd_stand_sdk2(low_state, running_time):
+def pd_stand_sdk2(low_state, low_cmd, running_time):
     global last_target, transition_start_time, target, q_start, KD_BACK, KD_FRONT, KP_BACK, KP_FRONT
     if not np.array_equal(target, last_target):
         transition_start_time = running_time
-        q_start = np.zeros(12, dtype=DTYPE)
-        """
-        for i in range(12):
-            if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-                q_start[i+3] = low_state.motor_state[i].q
-            else:
-                q_start[i-3] = low_state.motor_state[i].q"""
         for i in range(12):
             q_start[i] = low_state.motor_state[i].q
         last_target = target.copy()
-    
-    # Calculate tanh
+
     if transition_start_time is not None:
         elapsed_time = running_time - transition_start_time
-        phase = np.tanh(elapsed_time / 1.2)  # Smooth 0→1 transition   
-        if phase >= 0.99:  
+        phase = np.tanh(elapsed_time / 1.2)
+        if phase >= 0.99:
             phase = 1.0
     else:
         phase = 0.0
-    
-    # current states
-    q = np.zeros(12, dtype=DTYPE)
-    dq = np.zeros(12, dtype=DTYPE)
-    """
-    for i in range(12):
-        if (i%6 <= 2): # R and L swap: 0-2 <-> 3-5, 6-8 <-> 9-11
-            q[i+3] = low_state.motor_state[i].q
-            dq[i+3] = low_state.motor_state[i].dq
-        else:
-            q[i-3] = low_state.motor_state[i].q
-            dq[i-3] = low_state.motor_state[i].dq"""
-    for i in range(12):
-        q[i] = low_state.motor_state[i].q
-        dq[i] = low_state.motor_state[i].dq
 
-    for leg in range(4):
-        target_leg = target[3*leg : 3*(leg+1)]
-        q_start_leg = q_start[3*leg : 3*(leg+1)]
-        current_q_leg = q[3*leg : 3*(leg+1)]
-        current_dq_leg = dq[3*leg : 3*(leg+1)]
+    for i in range(12):
+        leg = i // 3  # 0=FL, 1=FR, 2=RL, 3=RR
 
-        # F/R leg pd control
         kp = KP_FRONT if leg < 2 else KP_BACK
-        kd_matrix = KD_FRONT if leg < 2 else KD_BACK
-        kp_val = kp * phase + 20 * (1 - phase)
-        kp_matrix = kp_val * np.eye(3)
+        kd = 5.0
 
-        smooth_tleg = phase * target_leg + (1-phase) * q_start_leg
+        q_targ = phase * target[i] + (1 - phase) * q_start[i]
 
-        tau_leg = kp_matrix @ (smooth_tleg - current_q_leg) - kd_matrix @ current_dq_leg
-        LegTorques[3*leg : 3*(leg+1)] = tau_leg
+        low_cmd.motor_cmd[i].q   = float(q_targ)
+        low_cmd.motor_cmd[i].kp  = float(kp)
+        low_cmd.motor_cmd[i].dq  = 0.0
+        low_cmd.motor_cmd[i].kd  = kd
+        low_cmd.motor_cmd[i].tau = 0.0
 
-    return LegTorques
+    return low_cmd
 
 def init_csv_logger(filename="mujoco_log.csv"):
     """
