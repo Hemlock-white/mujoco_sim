@@ -103,7 +103,6 @@ class MPCLocomotionSDK2:
 
         running_time = 0.0
         legTorques = np.zeros(12, dtype=DTYPE)
-        was_moving = False
         waiting_for_states = True
         
         while True:
@@ -119,7 +118,6 @@ class MPCLocomotionSDK2:
                     waiting_for_states = False
                 time.sleep(0.005)
                 continue
-
             
             if gamepad.is_standing:
                 self.low_cmd = pd_stand_sdk2(self.low_state, self.low_cmd, running_time)
@@ -142,21 +140,6 @@ class MPCLocomotionSDK2:
                     self.low_cmd.motor_cmd[i].dq  = 16000.0  # VelMPC — enable velocity term with high target velocity to effectively become torque control
                     self.low_cmd.motor_cmd[i].kd  = 0.0      # local damping via bridge live sensordata
                     self.low_cmd.motor_cmd[i].tau = legTorques[i]
-                if running_time - last_debug_time > 0.25:
-                    se = robotRunner._stateEstimator.getResult()
-                    print(
-                        "[MPC_DBG] cmd=({:.2f},{:.2f},{:.2f}) "
-                        "rpy=({:.1f},{:.1f},{:.1f}) "
-                        "vBody=({:.2f},{:.2f},{:.2f}) "
-                        "z={:.3f} maxTau={:.1f}".format(
-                            commands[0], commands[1], commands[2],
-                            *np.rad2deg(se.rpy.flatten()),
-                            *se.vBody.flatten(),
-                            float(se.position[2]),
-                            float(np.max(np.abs(legTorques))),
-                        )
-                    )
-                    last_debug_time = running_time
                 #print("legTorques: ", legTorques)
 
             time.sleep(0.005)
