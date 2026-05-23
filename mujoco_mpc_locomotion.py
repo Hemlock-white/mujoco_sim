@@ -69,6 +69,7 @@ def main():
             if gamepad.is_standing:
                 # When target changes, start transition timer
                 legTorques = pd_stand(data, running_time)
+                data.ctrl[:] = legTorques
             
             if gamepad.is_moving:
                         
@@ -88,8 +89,7 @@ def main():
                 fl_foot_z = data.xpos[fl_foot_id, 2]
                 # 如果是在 Isaac Gym 裡，可能是 raw_pos_z = body_states["pose"]["p"][0][2]
                 log_mpc_states(log_file, data.time, robotRunner, fl_foot_z, legTorques)
-            print("legTorques: ", legTorques)
-            data.ctrl[:] = legTorques
+                data.ctrl[:] = legTorques[LEG_MJC_TO_MPC]
         
         if Parameters.locomotionUnsafe:
             gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)

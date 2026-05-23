@@ -3,6 +3,12 @@ import os
 from MPC_Controller.math_utils.orientation_tools import Quaternion, quat_to_rot
 from MPC_Controller.utils import DTYPE
 
+# mujoco FR-first ↔ MPC FL-first joint index permutation.
+# MJC order: FR(0-2), FL(3-5), RR(6-8), RL(9-11)
+# MPC order:  FL(0-2), FR(3-5), RL(6-8), RR(9-11)
+# This permutation is its own inverse (involution): use for both read and write.
+LEG_MJC_TO_MPC = np.array([3,4,5, 0,1,2, 9,10,11, 6,7,8], dtype=int)
+
 STAND_TARGET = np.array([
     0., 0.8, -1.6,
     0., 0.8, -1.6,
@@ -38,23 +44,13 @@ def get_dof_state(data):
         ('vel', '<f4')
     ])
     Dof_state = np.zeros(12, dtype=dof_state)
-    Dof_state["pos"] = data.sensordata[0:12] 
-    Dof_state["vel"] = data.sensordata[12:24]
+    for i in range(12):
+        Dof_state["pos"][i] = data.sensordata[LEG_MJC_TO_MPC[i]]
+        Dof_state["vel"][i] = data.sensordata[LEG_MJC_TO_MPC[i]+12]
 
     return Dof_state
 
 def get_body_state(data):
-    # Returns body state sourced entirely from go2.xml sensordata.
-    # sensordata layout (indices are cumulative sensor output sizes):
-    #   [36:40] framequat "imu_quat"   -> (w, x, y, z)  world-frame orientation of imu site
-    #   [40:43] gyro      "imu_gyro"   -> (wx, wy, wz)   angular velocity in BODY frame
-    #   [46:49] framepos  "frame_pos"  -> (x, y, z)      world-frame position of imu site
-    #   [49:52] framelinvel "frame_vel"-> (vx, vy, vz)   world-frame linear velocity of imu site
-    #
-    # StateEstimator.update() (bridge_MPC_to_RL=False) reads:
-    #   pose['r']          -> orientation (x, y, z, w)
-    #   vel['linear']      -> vWorld  (world frame)
-    #   vel['angular']     -> omegaWorld (world frame)
     body_state_dtype = np.dtype([
         ('pose', [
             ('p', [('x', '<f4'), ('y', '<f4'), ('z', '<f4')]),
@@ -127,8 +123,9 @@ def get_dof_state_sdk2(low_state):
     ])
     Dof_state = np.zeros(12, dtype=dof_state)
     for i in range(12):
-        Dof_state["pos"][i] = low_state.motor_state[i].q
-        Dof_state["vel"][i] = low_state.motor_state[i].dq
+        j = LEG_MJC_TO_MPC[i]
+        Dof_state["pos"][i] = low_state.motor_state[j].q
+        Dof_state["vel"][i] = low_state.motor_state[j].dq
 
     return Dof_state
 
