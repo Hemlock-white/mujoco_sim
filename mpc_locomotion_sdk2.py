@@ -1,6 +1,7 @@
 """MPC Locomotion related headers and functions"""
 import sys
 import time
+import os
 import numpy as np
 from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
@@ -9,6 +10,7 @@ from MPC_Controller.utils import DTYPE
 from mujoco_sim import udp_reader
 #import mujoco
 from mujoco_sim.mujoco_sim_utils import *
+from mujoco_sim.sdk2_debug_logger import CsvLogger, add_vec, vec_fields, wall_time_ns
 from argparse import ArgumentParser
 
 """sdk related libraries"""
@@ -26,11 +28,14 @@ from mujoco_sim import config_sdk2 as config
 parser = ArgumentParser(prog="mpc_locomotion_sdk2")
 parser.add_argument("--disable-gamepad", action="store_true")
 parser.add_argument("--enable-motion-switcher", action="store_true")
+parser.add_argument("--debug-log", action="store_true", help="write SDK2/MPC debug CSV logs")
+parser.add_argument("--debug-log-dir", default="logs/sdk2_debug", help="directory for debug CSV logs")
 # 移除了 num-envs，專注於模擬單一機器人
 args = parser.parse_args()
 use_gamepad = not args.disable_gamepad
 if use_gamepad:
     gamepad = udp_reader.UDPGamepad(port=9876)
+
 dt = Parameters.controller_dt
 
 
@@ -39,10 +44,13 @@ class MPCLocomotionSDK2:
         self.low_cmd = unitree_go_msg_dds__LowCmd_()
         self.low_state = None
         self.high_state = None
+        self.debug_logger = None
+        self.pub_logger = None
+        self.lowcmd_pub_seq = 0
         # thread handling
-        self.lowCmdWriteThreadPtr = None 
+        self.lowCmdWriteThreadPtr = None
         self.crc = CRC()
-    
+
     def Init(self):
         self.InitLowCmd()
 
@@ -50,13 +58,13 @@ class MPCLocomotionSDK2:
         self.lowcmd_publisher = ChannelPublisher("rt/lowcmd", LowCmd_) #mujoco_sdk2.py subscribe to rt/lowcmd
         self.lowcmd_publisher.Init()
 
-        # create subscriber # 
+        # create subscriber #
         self.lowstate_subscriber = ChannelSubscriber("rt/lowstate", LowState_) #mujoco_sdk2.py publish to rt/lowstate
         self.lowstate_subscriber.Init(self.LowStateMessageHandler, 10)
         self.highstate_subscriber = ChannelSubscriber("rt/sportmodestate", SportModeState_) #mujoco_sdk2.py publish to rt/sportmodestate
         self.highstate_subscriber.Init(self.HighStateMessageHandler, 10)
-        
-    def Start(self): # the thread that 
+
+    def Start(self):
         self.lowCmdWriteThreadPtr = RecurrentThread(
             interval=0.002, target=self.LowCmdWrite, name="writebasiccmd"
         )
@@ -78,16 +86,24 @@ class MPCLocomotionSDK2:
 
     def LowStateMessageHandler(self, msg: LowState_):
         self.low_state = msg
-        # print("FR_0 motor state: ", msg.motor_state[go2.LegID["FR_0"]])
-        # print("IMU state: ", msg.imu_state)
-        # print("Battery state: voltage: ", msg.power_v, "current: ", msg.power_a)
 
     def HighStateMessageHandler(self, msg: SportModeState_):
         self.high_state = msg
 
     def LowCmdWrite(self):
+        now_ns = wall_time_ns()
+        self.lowcmd_pub_seq += 1
         self.low_cmd.crc = self.crc.Crc(self.low_cmd)
         self.lowcmd_publisher.Write(self.low_cmd)
+        if self.pub_logger is not None:
+            row = {
+                "wall_time_ns": now_ns,
+                "pub_seq": self.lowcmd_pub_seq,
+                "crc": self.low_cmd.crc,
+            }
+            add_vec(row, "tau_cmd", [self.low_cmd.motor_cmd[i].tau for i in range(12)], 12)
+            add_vec(row, "q_cmd", [self.low_cmd.motor_cmd[i].q for i in range(12)], 12)
+            self.pub_logger.write(row)
         """
         //FR_ 0->0, FR_ 1->1, FR_ 2->2 motor sequence, currently only 12 motors are used, later reserved.
         //FL_ 0->3, FL_ 1->4, FL_ 2->5
@@ -96,7 +112,7 @@ class MPCLocomotionSDK2:
         """
 
     # Set up MPC controller
-    def MPC_RUN(self):   
+    def MPC_RUN(self):
         global use_gamepad, gamepad
         robotRunner = RobotRunnerFSM()
         robotRunner.init(RobotType.GO2)
@@ -104,9 +120,12 @@ class MPCLocomotionSDK2:
         running_time = 0.0
         legTorques = np.zeros(12, dtype=DTYPE)
         waiting_for_states = True
-        
+
+        if args.debug_log:
+            self._init_debug_loggers(args.debug_log_dir)
+
         while True:
-            commands = np.zeros(3, dtype=DTYPE)          
+            commands = np.zeros(3, dtype=DTYPE)
             running_time += dt
 
             if not use_gamepad:
@@ -118,7 +137,7 @@ class MPCLocomotionSDK2:
                     waiting_for_states = False
                 time.sleep(dt)
                 continue
-            
+
             if gamepad.is_standing:
                 self.low_cmd = pd_stand_sdk2(self.low_state, self.low_cmd, running_time)
                 _dof = get_dof_state_sdk2(self.low_state)
@@ -132,7 +151,7 @@ class MPCLocomotionSDK2:
                 Parameters.control_mode = gamepad.get_mode()
                 if not e_stop:
                     commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
-                    
+
                 # run controllers
                 dof_states = get_dof_state_sdk2(self.low_state)
                 body_states = get_body_state_sdk2(self.low_state, self.high_state)
@@ -142,12 +161,11 @@ class MPCLocomotionSDK2:
                     j = LEG_MJC_TO_MPC[i]  # MPC leg i → SDK2 motor j
                     self.low_cmd.motor_cmd[j].q   = 2.146e9  # PosStopF — disable position term
                     self.low_cmd.motor_cmd[j].kp  = 0.0
-                    self.low_cmd.motor_cmd[j].dq  = 0.0  # VelMPC
+                    self.low_cmd.motor_cmd[j].dq  = 0.0
                     self.low_cmd.motor_cmd[j].kd  = 1.5      # local damping via bridge live sensordata
                     self.low_cmd.motor_cmd[j].tau = legTorques[i]
                 if self.debug_logger is not None:
                     self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
-                #print("legTorques: ", legTorques)
 
             time.sleep(dt)
 
@@ -158,6 +176,76 @@ class MPCLocomotionSDK2:
         if use_gamepad:
             print("exiting MPC_RUN loop, stopping gamepad thread...")
             gamepad.stop()
+
+    def _init_debug_loggers(self, log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+        mpc_fields = (
+            ["wall_time_ns", "running_time", "cmd_vx", "cmd_vy", "cmd_wz"]
+            + vec_fields("low_q", 12)
+            + vec_fields("low_dq", 12)
+            + vec_fields("tau_cmd", 12)
+            + vec_fields("imu_quat", 4)
+            + vec_fields("imu_gyro", 3)
+            + vec_fields("high_pos", 3)
+            + vec_fields("high_vel", 3)
+            + vec_fields("se_rpy", 3)
+            + vec_fields("se_pos", 3)
+            + vec_fields("se_vbody", 3)
+            + vec_fields("se_omega_body", 3)
+            + vec_fields("mpc_x", 12)
+            + vec_fields("mpc_x_des", 12)
+            + vec_fields("mpc_u_grf", 12)
+            + vec_fields("foot_p", 12)
+            + vec_fields("foot_p_des", 12)
+            + vec_fields("foot_v_des", 12)
+            + vec_fields("contact_state", 4)
+            + vec_fields("swing_state", 4)
+            + vec_fields("mpc_table", 40)
+        )
+        pub_fields = (
+            ["wall_time_ns", "pub_seq", "crc"]
+            + vec_fields("tau_cmd", 12)
+            + vec_fields("q_cmd", 12)
+        )
+        self.debug_logger = CsvLogger(os.path.join(log_dir, "controller_mpc.csv"), mpc_fields)
+        self.pub_logger = CsvLogger(os.path.join(log_dir, "controller_lowcmd_pub.csv"), pub_fields)
+        print(f"[SDK2 Debug] writing controller logs to {log_dir}")
+
+    def _log_mpc_debug(self, robotRunner, running_time, commands, legTorques):
+        se = robotRunner._stateEstimator.getResult()
+        cMPC = robotRunner._controlFSM.statesList.locomotion.cMPC
+        snap = getattr(cMPC, "debug_snapshot", {})
+        row = {
+            "wall_time_ns": wall_time_ns(),
+            "running_time": running_time,
+            "cmd_vx": float(commands[0]),
+            "cmd_vy": float(commands[1]),
+            "cmd_wz": float(commands[2]),
+        }
+        add_vec(row, "low_q", [self.low_state.motor_state[i].q for i in range(12)], 12)
+        add_vec(row, "low_dq", [self.low_state.motor_state[i].dq for i in range(12)], 12)
+        add_vec(row, "tau_cmd", legTorques, 12)
+        add_vec(row, "imu_quat", self.low_state.imu_state.quaternion, 4)
+        add_vec(row, "imu_gyro", self.low_state.imu_state.gyroscope, 3)
+        add_vec(row, "high_pos", self.high_state.position, 3)
+        add_vec(row, "high_vel", self.high_state.velocity, 3)
+        add_vec(row, "se_rpy", se.rpy.flatten(), 3)
+        add_vec(row, "se_pos", se.position.flatten(), 3)
+        add_vec(row, "se_vbody", se.vBody.flatten(), 3)
+        add_vec(row, "se_omega_body", se.omegaBody.flatten(), 3)
+        for key, count in (
+            ("mpc_x", 12),
+            ("mpc_x_des", 12),
+            ("mpc_u_grf", 12),
+            ("foot_p", 12),
+            ("foot_p_des", 12),
+            ("foot_v_des", 12),
+            ("contact_state", 4),
+            ("swing_state", 4),
+            ("mpc_table", 40),
+        ):
+            add_vec(row, key, snap.get(key, []), count)
+        self.debug_logger.write(row)
 
 if __name__=="__main__":
     try:
@@ -171,7 +259,7 @@ if __name__=="__main__":
     except KeyboardInterrupt:
         print("\nProgram interrupted by user.")
         sys.exit(0)
-    
+
     finally:
         if 'gamepad' in locals() and use_gamepad:
             print("exiting main, stopping gamepad thread...")

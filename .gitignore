@@ -144,3 +144,7 @@ reference/
 logs/
 
 *.pkl
+# Windows ADS zone files (WSL artifact)
+*Zone.Identifier
+.claude/
+mujoco_log.csv
