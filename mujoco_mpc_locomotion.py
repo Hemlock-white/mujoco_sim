@@ -1,7 +1,6 @@
-from pyexpat import model
 import sys
 import time
-from xml.parsers.expat import model
+import os
 import numpy as np
 from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
@@ -31,7 +30,7 @@ def main():
     global target
     # robot = RobotType[args.robot.upper()]
     # 暫時固定使用 go2 (fake AI)，因為它的 XML 已經包含了地形和機器人模型，方便測試
-    dt = 0.005 # Match Isaac Gym physics step (0.01 / 2 substeps)
+    dt = Parameters.controller_dt # Match Isaac Gym physics step (0.01 / 2 substeps)
     model = mujoco.MjModel.from_xml_path("assets/go2/scene.xml")  # 直接載入 go2 的 xml，裡面已經包含了地形和機器人模型
     model.opt.timestep = dt
     data = mujoco.MjData(model)
@@ -40,6 +39,8 @@ def main():
     viewer = mujoco.viewer.launch_passive(model, data)
     viewer.cam.lookat = [0.0, 0.0, 0.0]
     viewer.cam.distance = 2.0
+    viewer.cam.azimuth  = 90
+    viewer.cam.elevation = -20
     
     # Set up MPC controller
     robotRunner = RobotRunnerFSM()
@@ -103,6 +104,7 @@ def main():
             if model.nq >= 3:
                 viewer.cam.lookat[0] = data.qpos[0]
                 viewer.cam.lookat[1] = data.qpos[1]
+                viewer.cam.lookat[2] = data.qpos[2]
             viewer.sync()
 
         # 7. 真實時間同步

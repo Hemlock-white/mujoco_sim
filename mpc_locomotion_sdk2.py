@@ -31,7 +31,7 @@ args = parser.parse_args()
 use_gamepad = not args.disable_gamepad
 if use_gamepad:
     gamepad = udp_reader.UDPGamepad(port=9876)
-
+dt = Parameters.controller_dt
 
 
 class MPCLocomotionSDK2:
@@ -58,7 +58,7 @@ class MPCLocomotionSDK2:
         
     def Start(self): # the thread that 
         self.lowCmdWriteThreadPtr = RecurrentThread(
-            interval=0.005, target=self.LowCmdWrite, name="writebasiccmd"
+            interval=0.002, target=self.LowCmdWrite, name="writebasiccmd"
         )
         self.lowCmdWriteThreadPtr.Start()
 
@@ -107,7 +107,7 @@ class MPCLocomotionSDK2:
         
         while True:
             commands = np.zeros(3, dtype=DTYPE)          
-            running_time += 0.005
+            running_time += dt
 
             if not use_gamepad:
                 break
@@ -116,11 +116,15 @@ class MPCLocomotionSDK2:
                 if waiting_for_states:
                     print("Waiting for rt/lowstate and rt/sportmodestate from mujoco_sim_sdk2.py...")
                     waiting_for_states = False
-                time.sleep(0.005)
+                time.sleep(dt)
                 continue
             
             if gamepad.is_standing:
                 self.low_cmd = pd_stand_sdk2(self.low_state, self.low_cmd, running_time)
+                _dof = get_dof_state_sdk2(self.low_state)
+                _body = get_body_state_sdk2(self.low_state, self.high_state)
+                robotRunner._legController.updateData(_dof)
+                robotRunner._stateEstimator.update(_body)
 
             if gamepad.is_moving:
                 lin_speed, ang_speed, e_stop = gamepad.get_command()
@@ -135,14 +139,17 @@ class MPCLocomotionSDK2:
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
 
                 for i in range(12):
-                    self.low_cmd.motor_cmd[i].q   = 2.146e9  # PosStopF — disable position term
-                    self.low_cmd.motor_cmd[i].kp  = 0.0
-                    self.low_cmd.motor_cmd[i].dq  = 16000.0  # VelMPC — enable velocity term with high target velocity to effectively become torque control
-                    self.low_cmd.motor_cmd[i].kd  = 0.0      # local damping via bridge live sensordata
-                    self.low_cmd.motor_cmd[i].tau = legTorques[i]
+                    j = LEG_MJC_TO_MPC[i]  # MPC leg i → SDK2 motor j
+                    self.low_cmd.motor_cmd[j].q   = 2.146e9  # PosStopF — disable position term
+                    self.low_cmd.motor_cmd[j].kp  = 0.0
+                    self.low_cmd.motor_cmd[j].dq  = 0.0  # VelMPC
+                    self.low_cmd.motor_cmd[j].kd  = 1.5      # local damping via bridge live sensordata
+                    self.low_cmd.motor_cmd[j].tau = legTorques[i]
+                if self.debug_logger is not None:
+                    self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
                 #print("legTorques: ", legTorques)
 
-            time.sleep(0.005)
+            time.sleep(dt)
 
             if Parameters.locomotionUnsafe:
                 gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
