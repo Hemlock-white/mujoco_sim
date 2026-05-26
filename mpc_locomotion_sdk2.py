@@ -7,7 +7,8 @@ from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
 from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE
-from mujoco_sim import udp_reader
+from mujoco_sim.pygame_gamepad import PyGamepad
+#from mujoco_sim import udp_reader
 #import mujoco
 from mujoco_sim.mujoco_sim_utils import *
 from mujoco_sim.sdk2_debug_logger import CsvLogger, add_vec, vec_fields, wall_time_ns
@@ -34,10 +35,42 @@ parser.add_argument("--debug-log-dir", default="logs/sdk2_debug", help="director
 args = parser.parse_args()
 use_gamepad = not args.disable_gamepad
 if use_gamepad:
-    gamepad = udp_reader.UDPGamepad(port=9876)
+    gamepad = PyGamepad()
+    #gamepad = udp_reader.UDPGamepad(port=9876)
 
 dt = Parameters.controller_dt
 
+
+
+def _get_mpc_snapshot(cMPC, se):
+    if cMPC.firstRun:
+        return {}
+    gait_map = {
+        0: cMPC.trotting, 1: cMPC.bounding, 2: cMPC.pronking,
+        3: cMPC.pacing,   5: cMPC.galloping, 6: cMPC.walking, 7: cMPC.trotRunning,
+    }
+    gait = gait_map.get(cMPC.current_gait, cMPC.trotting)
+    mpc_x = np.concatenate([
+        se.rpyBody.flatten(), se.position.flatten(),
+        se.omegaBody.flatten(), se.vBody.flatten(),
+    ])
+    mpc_x_des = np.array([
+        0, 0, 0,
+        0, 0, float(cMPC._body_height),
+        0, 0, float(cMPC._yaw_turn_rate),
+        float(cMPC._x_vel_des), float(cMPC._y_vel_des), 0,
+    ])
+    return {
+        "mpc_x":         mpc_x,
+        "mpc_x_des":     mpc_x_des,
+        "mpc_u_grf":     cMPC.f_ff.reshape(12),
+        "foot_p":        np.array([cMPC.pFoot[i].flatten() for i in range(4)]).flatten(),
+        "foot_p_des":    np.array([cMPC.footSwingTrajectories[i].getPosition().flatten() for i in range(4)]).flatten(),
+        "foot_v_des":    np.array([cMPC.footSwingTrajectories[i].getVelocity().flatten() for i in range(4)]).flatten(),
+        "contact_state": gait.getContactState().flatten(),
+        "swing_state":   gait.getSwingState().flatten(),
+        "mpc_table":     list(gait.getMpcTable()),
+    }
 
 class MPCLocomotionSDK2:
     def __init__(self):
@@ -137,13 +170,14 @@ class MPCLocomotionSDK2:
                     waiting_for_states = False
                 time.sleep(dt)
                 continue
+            
+            dof_states = get_dof_state_sdk2(self.low_state)
+            body_states = get_body_state_sdk2(self.low_state, self.high_state)
 
             if gamepad.is_standing:
                 self.low_cmd = pd_stand_sdk2(self.low_state, self.low_cmd, running_time)
-                _dof = get_dof_state_sdk2(self.low_state)
-                _body = get_body_state_sdk2(self.low_state, self.high_state)
-                robotRunner._legController.updateData(_dof)
-                robotRunner._stateEstimator.update(_body)
+                robotRunner._legController.updateData(dof_states)
+                robotRunner._stateEstimator.update(body_states)
 
             if gamepad.is_moving:
                 lin_speed, ang_speed, e_stop = gamepad.get_command()
@@ -153,17 +187,15 @@ class MPCLocomotionSDK2:
                     commands = np.array([lin_speed[0], lin_speed[1], ang_speed], dtype=DTYPE)
 
                 # run controllers
-                dof_states = get_dof_state_sdk2(self.low_state)
-                body_states = get_body_state_sdk2(self.low_state, self.high_state)
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
 
                 for i in range(12):
-                    j = LEG_MJC_TO_MPC[i]  # MPC leg i → SDK2 motor j
-                    self.low_cmd.motor_cmd[j].q   = 2.146e9  # PosStopF — disable position term
-                    self.low_cmd.motor_cmd[j].kp  = 0.0
-                    self.low_cmd.motor_cmd[j].dq  = 0.0
-                    self.low_cmd.motor_cmd[j].kd  = 1.5      # local damping via bridge live sensordata
-                    self.low_cmd.motor_cmd[j].tau = legTorques[i]
+                    j = LEG_MJC_TO_MPC[i]  
+                    self.low_cmd.motor_cmd[i].q   = 2.146e9  
+                    self.low_cmd.motor_cmd[i].kp  = 0.0
+                    self.low_cmd.motor_cmd[i].dq  = 0.0
+                    self.low_cmd.motor_cmd[i].kd  = 1.0      
+                    self.low_cmd.motor_cmd[i].tau = legTorques[j]
                 if self.debug_logger is not None:
                     self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
 
@@ -214,7 +246,7 @@ class MPCLocomotionSDK2:
     def _log_mpc_debug(self, robotRunner, running_time, commands, legTorques):
         se = robotRunner._stateEstimator.getResult()
         cMPC = robotRunner._controlFSM.statesList.locomotion.cMPC
-        snap = getattr(cMPC, "debug_snapshot", {})
+        snap = _get_mpc_snapshot(cMPC, se)
         row = {
             "wall_time_ns": wall_time_ns(),
             "running_time": running_time,

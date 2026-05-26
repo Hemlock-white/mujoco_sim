@@ -16,8 +16,8 @@ state = {
     "clear_estop": False
 }
 
-INCREMENT = 0.5
-MAX_VEL = 4.0
+INCREMENT = 0.3
+MAX_VEL = 3.0
 
 def send_state():
     try:

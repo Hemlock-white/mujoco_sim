@@ -97,9 +97,9 @@ def plot_imu(controller, bridge, out_dir):
     if source is None:
         return
     t = time_axis(source)
-    plt.figure(figsize=(12, 9))
+    plt.figure(figsize=(12, 12))
 
-    plt.subplot(3, 1, 1)
+    plt.subplot(4, 1, 1)
     cols = existing_columns(source, "se_rpy", 3)
     if cols:
         for col, name in zip(cols, ("roll", "pitch", "yaw")):
@@ -108,18 +108,26 @@ def plot_imu(controller, bridge, out_dir):
     plt.grid(True)
     plt.legend()
 
-    plt.subplot(3, 1, 2)
+    plt.subplot(4, 1, 2)
     for col, name in zip(existing_columns(source, "imu_gyro", 3), ("gx", "gy", "gz")):
         plt.plot(t, source[col], label=name)
     plt.ylabel("rad/s")
     plt.grid(True)
     plt.legend()
 
-    plt.subplot(3, 1, 3)
+    plt.subplot(4, 1, 3)
     vel_prefix = "se_vbody" if "se_vbody_0" in source else "body_vel"
     for col, name in zip(existing_columns(source, vel_prefix, 3), ("vx", "vy", "vz")):
         plt.plot(t, source[col], label=name)
     plt.ylabel("m/s")
+    plt.grid(True)
+    plt.legend()
+
+    plt.subplot(4, 1, 4)
+    pos_prefix = "se_pos" if "se_pos_0" in source else ("body_pos" if "body_pos_0" in source else "high_pos")
+    for col, name in zip(existing_columns(source, pos_prefix, 3), ("x", "y", "z")):
+        plt.plot(t, source[col], label=name)
+    plt.ylabel("m")
     plt.xlabel("time s")
     plt.grid(True)
     plt.legend()

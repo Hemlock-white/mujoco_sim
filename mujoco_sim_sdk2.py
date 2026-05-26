@@ -90,7 +90,7 @@ def PhysicsViewerThread():
         locker.acquire()
         viewer.cam.lookat[0] = mj_data.qpos[0]
         viewer.cam.lookat[1] = mj_data.qpos[1]
-        viewer.cam.lookat[2] = mj_data.qpos[2]
+        #viewer.cam.lookat[2] = mj_data.qpos[2]
         viewer.sync()
         locker.release()
         time.sleep(config.VIEWER_DT)

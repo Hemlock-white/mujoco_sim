@@ -6,7 +6,7 @@ from MPC_Controller.Parameters import Parameters
 from MPC_Controller.robot_runner.RobotRunnerFSM import RobotRunnerFSM
 from MPC_Controller.common.Quadruped import RobotType
 from MPC_Controller.utils import DTYPE
-from mujoco_sim import udp_reader
+from mujoco_sim.pygame_gamepad import PyGamepad
 import mujoco
 import mujoco.viewer
 from mujoco_sim.mujoco_sim_utils import *
@@ -22,7 +22,7 @@ parser.add_argument("--debug-log-dir", default="logs/mujoco_mpc_debug", help="di
 args = parser.parse_args()
 use_gamepad = not args.disable_gamepad
 if use_gamepad:
-    gamepad = udp_reader.UDPGamepad(port=9876)
+    gamepad = PyGamepad()
 
 
 def init_mpc_debug_logger(log_dir):
@@ -56,7 +56,6 @@ def init_mpc_debug_logger(log_dir):
     print(f"[MuJoCo MPC Debug] writing logs to {log_dir}")
     return CsvLogger(os.path.join(log_dir, "controller_mpc.csv"), fields)
 
-
 def get_foot_contact_forces(model, data):
     foot_geom_ids = {
         name: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
@@ -79,13 +78,42 @@ def get_foot_contact_forces(model, data):
         norm[foot_name] += float(np.linalg.norm(force[:3]))
     return normal, norm
 
+def _get_mpc_snapshot(cMPC, se):
+    if cMPC.firstRun:
+        return {}
+    gait_map = {
+        0: cMPC.trotting, 1: cMPC.bounding, 2: cMPC.pronking,
+        3: cMPC.pacing,   5: cMPC.galloping, 6: cMPC.walking, 7: cMPC.trotRunning,
+    }
+    gait = gait_map.get(cMPC.current_gait, cMPC.trotting)
+    mpc_x = np.concatenate([
+        se.rpyBody.flatten(), se.position.flatten(),
+        se.omegaBody.flatten(), se.vBody.flatten(),
+    ])
+    mpc_x_des = np.array([
+        0, 0, 0,
+        0, 0, float(cMPC._body_height),
+        0, 0, float(cMPC._yaw_turn_rate),
+        float(cMPC._x_vel_des), float(cMPC._y_vel_des), 0,
+    ])
+    return {
+        "mpc_x":         mpc_x,
+        "mpc_x_des":     mpc_x_des,
+        "mpc_u_grf":     cMPC.f_ff.reshape(12),
+        "foot_p":        np.array([cMPC.pFoot[i].flatten() for i in range(4)]).flatten(),
+        "foot_p_des":    np.array([cMPC.footSwingTrajectories[i].getPosition().flatten() for i in range(4)]).flatten(),
+        "foot_v_des":    np.array([cMPC.footSwingTrajectories[i].getVelocity().flatten() for i in range(4)]).flatten(),
+        "contact_state": gait.getContactState().flatten(),
+        "swing_state":   gait.getSwingState().flatten(),
+        "mpc_table":     list(gait.getMpcTable()),
+    }
 
 def log_mpc_debug(logger, model, data, robot_runner, commands, leg_torques):
     if logger is None:
         return
     se = robot_runner._stateEstimator.getResult()
     cMPC = robot_runner._controlFSM.statesList.locomotion.cMPC
-    snap = getattr(cMPC, "debug_snapshot", {})
+    snap = _get_mpc_snapshot(cMPC, se)
     foot_normal, foot_norm = get_foot_contact_forces(model, data)
     row = {
         "wall_time_ns": wall_time_ns(),
@@ -128,7 +156,6 @@ def log_mpc_debug(logger, model, data, robot_runner, commands, leg_torques):
         add_vec(row, key, snap.get(key, []), count)
     logger.write(row)
 
-
 def main():
     global target
     dt = Parameters.controller_dt
@@ -153,7 +180,6 @@ def main():
 
     running_time = 0.0
     legTorques = np.zeros(12, dtype=DTYPE)
-    log_file = init_csv_logger("mujoco_log.csv")
     debug_logger = init_mpc_debug_logger(args.debug_log_dir) if args.debug_log else None
 
     while viewer.is_running():
@@ -179,9 +205,6 @@ def main():
                 legTorques = robotRunner.run(dof_states, body_states, commands).astype(np.float32)
                 log_mpc_debug(debug_logger, model, data, robotRunner, commands, legTorques)
 
-                fl_foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "FL_foot")
-                fl_foot_z = data.xpos[fl_foot_id, 2]
-                log_mpc_states(log_file, data.time, robotRunner, fl_foot_z, legTorques)
                 data.ctrl[:] = legTorques[LEG_MJC_TO_MPC]
 
         if Parameters.locomotionUnsafe:
@@ -203,10 +226,6 @@ def main():
 
         count += 1
 
-    if log_file is not None:
-        log_file.flush()
-        log_file.close()
-        print("\n[Logger] CSV 檔案已成功儲存！")
     if debug_logger is not None:
         debug_logger.close()
 
