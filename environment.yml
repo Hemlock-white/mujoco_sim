@@ -1,20 +1,46 @@
 name: rlmpc
+# Orin Nano (ARM64/aarch64) environment
+# Covers: mpc_locomotion_sdk2.py, mujoco_mpc_locomotion.py, mujoco_sim_sdk2.py,
+#         sitNstand_sim.py, teleop_client.py, generate_report.py, plot_locomotion_debug.py
+#
+# NOT covered (x86_64 only, cannot run on ARM):
+#   - RL_MPC_Locomotion.py / RL_Environment: requires isaacgym (no ARM build)
+#   - torch/torchvision/torchaudio: no +cu113 ARM wheels; install separately from
+#     https://developer.download.nvidia.com/compute/redist/jp/ if RL inference is needed
+#   - triton: no ARM support
 channels:
   - main
-  - pytorch
   - conda-forge
   - defaults
 dependencies:
   - python=3.8
-  - pytorch=1.10.0
-  - cudatoolkit=11.3
-  - numpy=1.20.0
-  - pyyaml>=5.3.1
-  - scipy>=1.5.0
-  - tensorboard>=2.2.1
-  - pybind11 # conda install -c conda-forge pybind11
+  - numpy=1.23.5
+  - scipy=1.9.1
+  - pyyaml=6.0.2
+  - pybind11
   - pip
   - pip:
-    - inputs == 0.5
-    - hydra-core == 1.1.0
-    - omegaconf == 2.1
+      # MuJoCo simulation (ARM64 wheels available on PyPI)
+      - mujoco==3.2.3
+      - glfw==2.10.0
+      - pyopengl==3.1.10
+      - imageio==2.35.1
+      - pillow==10.4.0
+      - matplotlib==3.7.5
+      - networkx==3.1
+      # Unitree SDK2 / CycloneDDS
+      - cyclonedds==0.10.2
+      - unitree-sdk2py==1.0.1
+      # Config system (hydra)
+      - hydra-core==1.1.0
+      - omegaconf==2.1.1
+      - antlr4-python3-runtime==4.8
+      # Gamepad / input devices
+      - pygame==2.6.1
+      - inputs==0.5
+      - evdev==1.9.2
+      - pynput==1.8.1
+      - python-xlib==0.33
+      # Report generation (generate_report.py)
+      - python-docx==1.1.2
+      - lxml==6.1.0

@@ -79,7 +79,7 @@ class ConvexMPCLocomotion:
         self.swingTimes = np.zeros((4,1), dtype=DTYPE)
         self.swingTimeRemaining = [0.0 for _ in range(4)]
 
-        self.Kp = np.array([700, 0, 0, 0, 700, 0, 0, 0, 150], dtype=DTYPE).reshape((3,3))
+        self.Kp = np.array([700, 0, 0, 0, 700, 0, 0, 0, 700], dtype=DTYPE).reshape((3,3))
         self.Kd = np.array([7, 0, 0, 0, 7, 0, 0, 0, 7], dtype=DTYPE).reshape((3,3))
         self.Kp_stance = np.zeros_like(self.Kp)
         self.Kd_stance = self.Kd
