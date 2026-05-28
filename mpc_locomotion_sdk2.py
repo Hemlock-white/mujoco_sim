@@ -134,8 +134,10 @@ class MPCLocomotionSDK2:
                 "pub_seq": self.lowcmd_pub_seq,
                 "crc": self.low_cmd.crc,
             }
-            add_vec(row, "tau_cmd", [self.low_cmd.motor_cmd[i].tau for i in range(12)], 12)
-            add_vec(row, "q_cmd", [self.low_cmd.motor_cmd[i].q for i in range(12)], 12)
+            add_vec(row, "tau_cmd_FR", [self.low_cmd.motor_cmd[i].tau for i in range(3)],     3)
+            add_vec(row, "tau_cmd_RL", [self.low_cmd.motor_cmd[i].tau for i in range(9, 12)], 3)
+            add_vec(row, "q_cmd_FR",   [self.low_cmd.motor_cmd[i].q   for i in range(3)],     3)
+            add_vec(row, "q_cmd_RL",   [self.low_cmd.motor_cmd[i].q   for i in range(9, 12)], 3)
             self.pub_logger.write(row)
         """
         //FR_ 0->0, FR_ 1->1, FR_ 2->2 motor sequence, currently only 12 motors are used, later reserved.
@@ -196,8 +198,9 @@ class MPCLocomotionSDK2:
                     self.low_cmd.motor_cmd[i].dq  = 0.0
                     self.low_cmd.motor_cmd[i].kd  = 1.0      
                     self.low_cmd.motor_cmd[i].tau = legTorques[j]
-                if self.debug_logger is not None:
-                    self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
+            
+            if self.debug_logger is not None:
+                self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
 
             time.sleep(dt)
 
@@ -213,9 +216,12 @@ class MPCLocomotionSDK2:
         os.makedirs(log_dir, exist_ok=True)
         mpc_fields = (
             ["wall_time_ns", "running_time", "cmd_vx", "cmd_vy", "cmd_wz"]
-            + vec_fields("low_q", 12)
-            + vec_fields("low_dq", 12)
-            + vec_fields("tau_cmd", 12)
+            + vec_fields("low_q_FR", 3)
+            + vec_fields("low_q_RL", 3)
+            + vec_fields("low_dq_FR", 3)
+            + vec_fields("low_dq_RL", 3)
+            + vec_fields("tau_FR", 3)
+            + vec_fields("tau_RL", 3)
             + vec_fields("imu_quat", 4)
             + vec_fields("imu_gyro", 3)
             + vec_fields("high_pos", 3)
@@ -227,17 +233,19 @@ class MPCLocomotionSDK2:
             + vec_fields("mpc_x", 12)
             + vec_fields("mpc_x_des", 12)
             + vec_fields("mpc_u_grf", 12)
-            + vec_fields("foot_p", 12)
-            + vec_fields("foot_p_des", 12)
-            + vec_fields("foot_v_des", 12)
-            + vec_fields("contact_state", 4)
-            + vec_fields("swing_state", 4)
-            + vec_fields("mpc_table", 40)
+            + vec_fields("foot_p_FR", 3)
+            + vec_fields("foot_p_des_FR", 3)
+            + vec_fields("foot_v_des_FR", 3)
+            + vec_fields("foot_p_RL", 3)
+            + vec_fields("foot_p_des_RL", 3)
+            + vec_fields("foot_v_des_RL", 3)
         )
         pub_fields = (
             ["wall_time_ns", "pub_seq", "crc"]
-            + vec_fields("tau_cmd", 12)
-            + vec_fields("q_cmd", 12)
+            + vec_fields("tau_cmd_FR", 3)
+            + vec_fields("tau_cmd_RL", 3)
+            + vec_fields("q_cmd_FR", 3)
+            + vec_fields("q_cmd_RL", 3)
         )
         self.debug_logger = CsvLogger(os.path.join(log_dir, "controller_mpc.csv"), mpc_fields)
         self.pub_logger = CsvLogger(os.path.join(log_dir, "controller_lowcmd_pub.csv"), pub_fields)
@@ -254,9 +262,12 @@ class MPCLocomotionSDK2:
             "cmd_vy": float(commands[1]),
             "cmd_wz": float(commands[2]),
         }
-        add_vec(row, "low_q", [self.low_state.motor_state[i].q for i in range(12)], 12)
-        add_vec(row, "low_dq", [self.low_state.motor_state[i].dq for i in range(12)], 12)
-        add_vec(row, "tau_cmd", legTorques, 12)
+        add_vec(row, "low_q_FR",  [self.low_state.motor_state[i].q  for i in range(3)],     3)
+        add_vec(row, "low_q_RL",  [self.low_state.motor_state[i].q  for i in range(9, 12)], 3)
+        add_vec(row, "low_dq_FR", [self.low_state.motor_state[i].dq for i in range(3)],     3)
+        add_vec(row, "low_dq_RL", [self.low_state.motor_state[i].dq for i in range(9, 12)], 3)
+        add_vec(row, "tau_FR", legTorques[3:6], 3)
+        add_vec(row, "tau_RL", legTorques[6:9], 3)
         add_vec(row, "imu_quat", self.low_state.imu_state.quaternion, 4)
         add_vec(row, "imu_gyro", self.low_state.imu_state.gyroscope, 3)
         add_vec(row, "high_pos", self.high_state.position, 3)
@@ -265,18 +276,18 @@ class MPCLocomotionSDK2:
         add_vec(row, "se_pos", se.position.flatten(), 3)
         add_vec(row, "se_vbody", se.vBody.flatten(), 3)
         add_vec(row, "se_omega_body", se.omegaBody.flatten(), 3)
-        for key, count in (
-            ("mpc_x", 12),
-            ("mpc_x_des", 12),
-            ("mpc_u_grf", 12),
-            ("foot_p", 12),
-            ("foot_p_des", 12),
-            ("foot_v_des", 12),
-            ("contact_state", 4),
-            ("swing_state", 4),
-            ("mpc_table", 40),
-        ):
-            add_vec(row, key, snap.get(key, []), count)
+        add_vec(row, "mpc_x",     snap.get("mpc_x",     []), 12)
+        add_vec(row, "mpc_x_des", snap.get("mpc_x_des", []), 12)
+        add_vec(row, "mpc_u_grf", snap.get("mpc_u_grf", []), 12)
+        fp    = snap.get("foot_p",     [])
+        fpdes = snap.get("foot_p_des", [])
+        fvdes = snap.get("foot_v_des", [])
+        add_vec(row, "foot_p_FR",     fp[3:6]    if len(fp)    >= 6 else [], 3)
+        add_vec(row, "foot_p_RL",     fp[6:9]    if len(fp)    >= 9 else [], 3)
+        add_vec(row, "foot_p_des_FR", fpdes[3:6] if len(fpdes) >= 6 else [], 3)
+        add_vec(row, "foot_p_des_RL", fpdes[6:9] if len(fpdes) >= 9 else [], 3)
+        add_vec(row, "foot_v_des_FR", fvdes[3:6] if len(fvdes) >= 6 else [], 3)
+        add_vec(row, "foot_v_des_RL", fvdes[6:9] if len(fvdes) >= 9 else [], 3)
         self.debug_logger.write(row)
 
 if __name__=="__main__":

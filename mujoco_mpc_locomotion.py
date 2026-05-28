@@ -29,10 +29,12 @@ def init_mpc_debug_logger(log_dir):
     os.makedirs(log_dir, exist_ok=True)
     fields = (
         ["wall_time_ns", "sim_time", "cmd_vx", "cmd_vy", "cmd_wz"]
-        + vec_fields("q", 12)
-        + vec_fields("dq", 12)
-        + vec_fields("tau_cmd", 12)
-        + vec_fields("ctrl", 12)
+        + vec_fields("q_FR", 3)
+        + vec_fields("q_RL", 3)
+        + vec_fields("dq_FR", 3)
+        + vec_fields("dq_RL", 3)
+        + vec_fields("tau_FR", 3)
+        + vec_fields("tau_RL", 3)
         + vec_fields("imu_quat", 4)
         + vec_fields("imu_gyro", 3)
         + vec_fields("body_pos", 3)
@@ -44,14 +46,14 @@ def init_mpc_debug_logger(log_dir):
         + vec_fields("mpc_x", 12)
         + vec_fields("mpc_x_des", 12)
         + vec_fields("mpc_u_grf", 12)
-        + vec_fields("foot_p", 12)
-        + vec_fields("foot_p_des", 12)
-        + vec_fields("foot_v_des", 12)
-        + vec_fields("contact_state", 4)
-        + vec_fields("swing_state", 4)
-        + vec_fields("mpc_table", 40)
-        + ["foot_normal_FR", "foot_normal_FL", "foot_normal_RR", "foot_normal_RL"]
-        + ["foot_force_norm_FR", "foot_force_norm_FL", "foot_force_norm_RR", "foot_force_norm_RL"]
+        + vec_fields("foot_p_FR", 3)
+        + vec_fields("foot_p_des_FR", 3)
+        + vec_fields("foot_v_des_FR", 3)
+        + vec_fields("foot_p_RL", 3)
+        + vec_fields("foot_p_des_RL", 3)
+        + vec_fields("foot_v_des_RL", 3)
+        + ["foot_normal_FR", "foot_force_norm_FR"]
+        + ["foot_normal_RL", "foot_force_norm_RL"]
     )
     print(f"[MuJoCo MPC Debug] writing logs to {log_dir}")
     return CsvLogger(os.path.join(log_dir, "controller_mpc.csv"), fields)
@@ -122,18 +124,16 @@ def log_mpc_debug(logger, model, data, robot_runner, commands, leg_torques):
         "cmd_vy": float(commands[1]),
         "cmd_wz": float(commands[2]),
         "foot_normal_FR": foot_normal["FR"],
-        "foot_normal_FL": foot_normal["FL"],
-        "foot_normal_RR": foot_normal["RR"],
-        "foot_normal_RL": foot_normal["RL"],
         "foot_force_norm_FR": foot_norm["FR"],
-        "foot_force_norm_FL": foot_norm["FL"],
-        "foot_force_norm_RR": foot_norm["RR"],
+        "foot_normal_RL": foot_normal["RL"],
         "foot_force_norm_RL": foot_norm["RL"],
     }
-    add_vec(row, "q", data.sensordata[0:12], 12)
-    add_vec(row, "dq", data.sensordata[12:24], 12)
-    add_vec(row, "tau_cmd", leg_torques, 12)
-    add_vec(row, "ctrl", data.ctrl[:12], 12)
+    add_vec(row, "q_FR",  data.sensordata[0:3],   3)
+    add_vec(row, "q_RL",  data.sensordata[9:12],  3)
+    add_vec(row, "dq_FR", data.sensordata[12:15], 3)
+    add_vec(row, "dq_RL", data.sensordata[21:24], 3)
+    add_vec(row, "tau_FR", leg_torques[3:6], 3)
+    add_vec(row, "tau_RL", leg_torques[6:9], 3)
     add_vec(row, "imu_quat", data.sensordata[36:40], 4)
     add_vec(row, "imu_gyro", data.sensordata[40:43], 3)
     add_vec(row, "body_pos", data.sensordata[46:49], 3)
@@ -142,18 +142,18 @@ def log_mpc_debug(logger, model, data, robot_runner, commands, leg_torques):
     add_vec(row, "se_pos", se.position.flatten(), 3)
     add_vec(row, "se_vbody", se.vBody.flatten(), 3)
     add_vec(row, "se_omega_body", se.omegaBody.flatten(), 3)
-    for key, count in (
-        ("mpc_x", 12),
-        ("mpc_x_des", 12),
-        ("mpc_u_grf", 12),
-        ("foot_p", 12),
-        ("foot_p_des", 12),
-        ("foot_v_des", 12),
-        ("contact_state", 4),
-        ("swing_state", 4),
-        ("mpc_table", 40),
-    ):
-        add_vec(row, key, snap.get(key, []), count)
+    add_vec(row, "mpc_x",     snap.get("mpc_x",     []), 12)
+    add_vec(row, "mpc_x_des", snap.get("mpc_x_des", []), 12)
+    add_vec(row, "mpc_u_grf", snap.get("mpc_u_grf", []), 12)
+    fp    = snap.get("foot_p",     [])
+    fpdes = snap.get("foot_p_des", [])
+    fvdes = snap.get("foot_v_des", [])
+    add_vec(row, "foot_p_FR",     fp[3:6]    if len(fp)    >= 6 else [], 3)
+    add_vec(row, "foot_p_RL",     fp[6:9]    if len(fp)    >= 9 else [], 3)
+    add_vec(row, "foot_p_des_FR", fpdes[3:6] if len(fpdes) >= 6 else [], 3)
+    add_vec(row, "foot_p_des_RL", fpdes[6:9] if len(fpdes) >= 9 else [], 3)
+    add_vec(row, "foot_v_des_FR", fvdes[3:6] if len(fvdes) >= 6 else [], 3)
+    add_vec(row, "foot_v_des_RL", fvdes[6:9] if len(fvdes) >= 9 else [], 3)
     logger.write(row)
 
 def main():

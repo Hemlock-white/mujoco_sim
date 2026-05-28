@@ -139,13 +139,14 @@ def plot_foot_forces(controller, bridge, out_dir):
     source = bridge if bridge is not None else controller
     if source is None:
         return
-    if not any(f"foot_normal_{leg}" in source for leg in LEG_NAMES):
+    FR_RL = ("FR", "RL")
+    if not any(f"foot_normal_{leg}" in source for leg in FR_RL):
         return
     t = time_axis(source)
     plt.figure(figsize=(12, 8))
 
     plt.subplot(2, 1, 1)
-    for leg in LEG_NAMES:
+    for leg in FR_RL:
         col = f"foot_normal_{leg}"
         if col in source:
             plt.plot(t, source[col], label=leg)
@@ -154,7 +155,7 @@ def plot_foot_forces(controller, bridge, out_dir):
     plt.legend()
 
     plt.subplot(2, 1, 2)
-    for leg in LEG_NAMES:
+    for leg in FR_RL:
         col = f"foot_force_norm_{leg}"
         if col in source:
             plt.plot(t, source[col], label=leg)
@@ -209,22 +210,22 @@ def plot_feet(controller, out_dir):
     if controller is None:
         return
     t = time_axis(controller)
-    if "foot_p_0" not in controller or "foot_p_des_0" not in controller:
+    if "foot_p_FR_0" not in controller and "foot_p_RL_0" not in controller:
         return
 
     plt.figure(figsize=(12, 10))
     for axis_i, axis in enumerate(("x", "y", "z")):
         plt.subplot(3, 1, axis_i + 1)
-        for leg_i, leg in enumerate(MPC_LEG_NAMES):
-            col = f"foot_p_{leg_i * 3 + axis_i}"
-            des_col = f"foot_p_des_{leg_i * 3 + axis_i}"
+        for leg in ("FR", "RL"):
+            col     = f"foot_p_{leg}_{axis_i}"
+            des_col = f"foot_p_des_{leg}_{axis_i}"
             if col in controller:
                 plt.plot(t, controller[col], label=f"{leg} p {axis}")
             if des_col in controller:
                 plt.plot(t, controller[des_col], "--", label=f"{leg} p_des {axis}")
         plt.ylabel(axis)
         plt.grid(True)
-        plt.legend(ncol=4, fontsize=8)
+        plt.legend(ncol=2, fontsize=8)
     plt.xlabel("time s")
 
     savefig(os.path.join(out_dir, "foot_actual_desired.png"))

@@ -10,6 +10,8 @@ from isaacgym import gymapi
 from RL_Environment.sim_utils import *
 from argparse import ArgumentParser
 
+from mujoco_sim.pygame_gamepad import PyGamepad
+
 parser = ArgumentParser(prog="RL_MPC_LOCOMOTION")
 
 parser.add_argument("--robot", default="Aliengo", choices=[name.title() for name in RobotType.__members__.keys()], help="robot types")
@@ -27,7 +29,9 @@ debug_vis = False # draw ground normal vector
 if use_gamepad:
     #gamepad = gamepad_reader.Gamepad(vel_scale_x=2.5, vel_scale_y=1.5, vel_scale_rot=3.0)
     gamepad = udp_reader.UDPGamepad(port=9876)
-
+else: 
+    gamepad = PyGamepad()
+    use_gamepad = True
 
 def main():
     robot = RobotType[args.robot.upper()]
