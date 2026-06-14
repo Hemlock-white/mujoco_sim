@@ -18,6 +18,8 @@ from argparse import ArgumentParser
 from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
 from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitialize
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
+from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowState_ as LowState_default
+from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_ as HighState_default
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
@@ -31,6 +33,7 @@ parser.add_argument("--disable-gamepad", action="store_true")
 parser.add_argument("--enable-motion-switcher", action="store_true")
 parser.add_argument("--debug-log", action="store_true", help="write SDK2/MPC debug CSV logs")
 parser.add_argument("--debug-log-dir", default="logs/sdk2_debug", help="directory for debug CSV logs")
+parser.add_argument("--standalone", action="store_true", help="run controller alone with dummy state (no bridge/robot) to profile loop timing")
 # 移除了 num-envs，專注於模擬單一機器人
 args = parser.parse_args()
 use_gamepad = not args.disable_gamepad
@@ -98,8 +101,9 @@ class MPCLocomotionSDK2:
         self.highstate_subscriber.Init(self.HighStateMessageHandler, 10)
 
     def Start(self):
+        return
         self.lowCmdWriteThreadPtr = RecurrentThread(
-            interval=0.002, target=self.LowCmdWrite, name="writebasiccmd"
+            interval=0.005, target=self.LowCmdWrite, name="writebasiccmd"
         )
         self.lowCmdWriteThreadPtr.Start()
 
@@ -116,12 +120,36 @@ class MPCLocomotionSDK2:
             self.low_cmd.motor_cmd[i].dq = 16000
             self.low_cmd.motor_cmd[i].kd = 0
             self.low_cmd.motor_cmd[i].tau = 0
+    
+    from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowState_ as LowState_default
+    from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_ as HighState_default
+    def LowStateMessageHandler(self):
+        self.low_state = LowState_default()
 
+    def HighStateMessageHandler(self):
+        self.high_state = HighState_default()
+
+    def dummy_state(self):
+        """Populate low_state/high_state with a valid standing pose so the loop
+        can run without a bridge or robot (timing-only experiment)."""
+        self.low_state  = LowState_default()
+        self.high_state = HighState_default()
+        # identity quaternion (w,x,y,z) so quat_to_rot is well-defined (avoid NaN)
+        self.low_state.imu_state.quaternion[0] = 1.0
+        self.low_state.imu_state.quaternion[1] = 0.0
+        self.low_state.imu_state.quaternion[2] = 0.0
+        self.low_state.imu_state.quaternion[3] = 0.0
+        # stand pose joint angles (MJC motor order) so FK / locomotionSafe are sane
+        for i in range(12):
+            self.low_state.motor_state[i].q  = float(STAND_TARGET[i])
+            self.low_state.motor_state[i].dq = 0.0
+        self.high_state.position[2] = 0.30
+    """
     def LowStateMessageHandler(self, msg: LowState_):
         self.low_state = msg
 
     def HighStateMessageHandler(self, msg: SportModeState_):
-        self.high_state = msg
+        self.high_state = msg"""
 
     def LowCmdWrite(self):
         now_ns = wall_time_ns()
@@ -159,19 +187,24 @@ class MPCLocomotionSDK2:
         if args.debug_log:
             self._init_debug_loggers(args.debug_log_dir)
 
+        if args.standalone:
+            self.dummy_state()
+            gamepad._enter_move()
+
         while True:
             commands = np.zeros(3, dtype=DTYPE)
             running_time += dt
+            step_start = time.time()
 
             if not use_gamepad:
                 break
-
+            """
             if self.low_state is None or self.high_state is None:
                 if waiting_for_states:
                     print("Waiting for rt/lowstate and rt/sportmodestate from mujoco_sim_sdk2.py...")
                     waiting_for_states = False
                 time.sleep(dt)
-                continue
+                continue"""
             
             dof_states = get_dof_state_sdk2(self.low_state)
             body_states = get_body_state_sdk2(self.low_state, self.high_state)
@@ -196,17 +229,21 @@ class MPCLocomotionSDK2:
                     self.low_cmd.motor_cmd[i].q   = 2.146e9  
                     self.low_cmd.motor_cmd[i].kp  = 0.0
                     self.low_cmd.motor_cmd[i].dq  = 0.0
-                    self.low_cmd.motor_cmd[i].kd  = 1.0      
+                    self.low_cmd.motor_cmd[i].kd  = 2.0      
                     self.low_cmd.motor_cmd[i].tau = legTorques[j]
             
-            if self.debug_logger is not None:
-                self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
-
-            time.sleep(dt)
+            #if self.debug_logger is not None:
+            #    self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
 
             if Parameters.locomotionUnsafe:
                 gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
                 Parameters.locomotionUnsafe = False
+
+            self.LowCmdWrite()
+
+            time_until_next_step = dt - (time.time() - step_start)
+            if time_until_next_step > 0:
+                time.sleep(time_until_next_step)
 
         if use_gamepad:
             print("exiting MPC_RUN loop, stopping gamepad thread...")
