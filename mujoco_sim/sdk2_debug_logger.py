@@ -4,9 +4,11 @@ import time
 
 
 class CsvLogger:
-    def __init__(self, path, fieldnames):
+    def __init__(self, path, fieldnames, flush_every=1):
         self.path = path
         self.fieldnames = list(fieldnames)
+        self._flush_every = max(1, int(flush_every))
+        self._flush_counter = 0
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.file = open(path, "w", newline="")
         self.writer = csv.DictWriter(self.file, fieldnames=self.fieldnames)
@@ -15,7 +17,10 @@ class CsvLogger:
     def write(self, row):
         safe_row = {key: row.get(key, "") for key in self.fieldnames}
         self.writer.writerow(safe_row)
-        self.file.flush()
+        self._flush_counter += 1
+        if self._flush_counter >= self._flush_every:
+            self.file.flush()
+            self._flush_counter = 0
 
     def close(self):
         self.file.flush()
