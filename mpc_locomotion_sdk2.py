@@ -103,7 +103,11 @@ class MPCLocomotionSDK2:
     def Start(self):
         return
         self.lowCmdWriteThreadPtr = RecurrentThread(
+<<<<<<< HEAD
             interval=0.005, target=self.LowCmdWrite, name="writebasiccmd"
+=======
+            interval=0.001, target=self.LowCmdWrite, name="writebasiccmd"
+>>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
         )
         self.lowCmdWriteThreadPtr.Start()
 
@@ -198,7 +202,11 @@ class MPCLocomotionSDK2:
 
             if not use_gamepad:
                 break
+<<<<<<< HEAD
             """
+=======
+            """"""
+>>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
             if self.low_state is None or self.high_state is None:
                 if waiting_for_states:
                     print("Waiting for rt/lowstate and rt/sportmodestate from mujoco_sim_sdk2.py...")
@@ -229,18 +237,31 @@ class MPCLocomotionSDK2:
                     self.low_cmd.motor_cmd[i].q   = 2.146e9  
                     self.low_cmd.motor_cmd[i].kp  = 0.0
                     self.low_cmd.motor_cmd[i].dq  = 0.0
+<<<<<<< HEAD
                     self.low_cmd.motor_cmd[i].kd  = 2.0      
                     self.low_cmd.motor_cmd[i].tau = legTorques[j]
             
             #if self.debug_logger is not None:
             #    self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
+=======
+                    self.low_cmd.motor_cmd[i].kd  = 1.5      
+                    self.low_cmd.motor_cmd[i].tau = legTorques[j]
+            
+            if self.debug_logger is not None:
+                self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
+
+            #time.sleep(dt)
+>>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
 
             if Parameters.locomotionUnsafe:
                 gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
                 Parameters.locomotionUnsafe = False
 
+<<<<<<< HEAD
             self.LowCmdWrite()
 
+=======
+>>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
             time_until_next_step = dt - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
