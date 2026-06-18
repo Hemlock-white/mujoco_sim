@@ -26,6 +26,8 @@ from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
 from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.utils.thread import RecurrentThread
 from mujoco_sim import config_sdk2 as config
+from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
+#from unitree_sdk2py.go2.sport.sport_client import SportClient
 
 """"""
 parser = ArgumentParser(prog="mpc_locomotion_sdk2")
@@ -97,17 +99,22 @@ class MPCLocomotionSDK2:
         # create subscriber #
         self.lowstate_subscriber = ChannelSubscriber("rt/lowstate", LowState_) #mujoco_sdk2.py publish to rt/lowstate
         self.lowstate_subscriber.Init(self.LowStateMessageHandler, 10)
-        self.highstate_subscriber = ChannelSubscriber("rt/sportmodestate", SportModeState_) #mujoco_sdk2.py publish to rt/sportmodestate
+        self.highstate_subscriber = ChannelSubscriber("rt/lf/sportmodestate", SportModeState_) #mujoco_sdk2.py publish to rt/sportmodestate
         self.highstate_subscriber.Init(self.HighStateMessageHandler, 10)
 
+        self.msc = MotionSwitcherClient()
+        self.msc.SetTimeout(5.0)
+        self.msc.Init()
+        status, result = self.msc.CheckMode()
+        while result and result.get("name"):
+            self.msc.ReleaseMode()
+            time.sleep(5)
+            status, result = self.msc.CheckMode()       
+
     def Start(self):
-        return
+        
         self.lowCmdWriteThreadPtr = RecurrentThread(
-<<<<<<< HEAD
             interval=0.005, target=self.LowCmdWrite, name="writebasiccmd"
-=======
-            interval=0.001, target=self.LowCmdWrite, name="writebasiccmd"
->>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
         )
         self.lowCmdWriteThreadPtr.Start()
 
@@ -124,7 +131,7 @@ class MPCLocomotionSDK2:
             self.low_cmd.motor_cmd[i].dq = 16000
             self.low_cmd.motor_cmd[i].kd = 0
             self.low_cmd.motor_cmd[i].tau = 0
-    
+    """
     from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowState_ as LowState_default
     from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_ as HighState_default
     def LowStateMessageHandler(self):
@@ -134,8 +141,8 @@ class MPCLocomotionSDK2:
         self.high_state = HighState_default()
 
     def dummy_state(self):
-        """Populate low_state/high_state with a valid standing pose so the loop
-        can run without a bridge or robot (timing-only experiment)."""
+        # Populate low_state/high_state with a valid standing pose so the loop
+        # can run without a bridge or robot (timing-only experiment).
         self.low_state  = LowState_default()
         self.high_state = HighState_default()
         # identity quaternion (w,x,y,z) so quat_to_rot is well-defined (avoid NaN)
@@ -153,7 +160,7 @@ class MPCLocomotionSDK2:
         self.low_state = msg
 
     def HighStateMessageHandler(self, msg: SportModeState_):
-        self.high_state = msg"""
+        self.high_state = msg
 
     def LowCmdWrite(self):
         now_ns = wall_time_ns()
@@ -202,17 +209,13 @@ class MPCLocomotionSDK2:
 
             if not use_gamepad:
                 break
-<<<<<<< HEAD
-            """
-=======
-            """"""
->>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
+            
             if self.low_state is None or self.high_state is None:
                 if waiting_for_states:
                     print("Waiting for rt/lowstate and rt/sportmodestate from mujoco_sim_sdk2.py...")
                     waiting_for_states = False
-                time.sleep(dt)
-                continue"""
+                time.sleep(1)
+                continue
             
             dof_states = get_dof_state_sdk2(self.low_state)
             body_states = get_body_state_sdk2(self.low_state, self.high_state)
@@ -237,31 +240,18 @@ class MPCLocomotionSDK2:
                     self.low_cmd.motor_cmd[i].q   = 2.146e9  
                     self.low_cmd.motor_cmd[i].kp  = 0.0
                     self.low_cmd.motor_cmd[i].dq  = 0.0
-<<<<<<< HEAD
                     self.low_cmd.motor_cmd[i].kd  = 2.0      
                     self.low_cmd.motor_cmd[i].tau = legTorques[j]
             
             #if self.debug_logger is not None:
             #    self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
-=======
-                    self.low_cmd.motor_cmd[i].kd  = 1.5      
-                    self.low_cmd.motor_cmd[i].tau = legTorques[j]
-            
-            if self.debug_logger is not None:
-                self._log_mpc_debug(robotRunner, running_time, commands, legTorques)
-
-            #time.sleep(dt)
->>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
 
             if Parameters.locomotionUnsafe:
                 gamepad.fake_event(ev_type='Key',code='BTN_TR',value=0)
                 Parameters.locomotionUnsafe = False
 
-<<<<<<< HEAD
-            self.LowCmdWrite()
+            #self.LowCmdWrite()
 
-=======
->>>>>>> fe8b1bf (Update control gains and refine timing in MPC locomotion; adjust environment dependencies)
             time_until_next_step = dt - (time.time() - step_start)
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
